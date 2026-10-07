@@ -1,0 +1,211 @@
+/* ToneMatrix Web — 视觉风格沿用原程序：纯黑底 + 浅灰方块 */
+
+:root {
+  --bg: #000000;
+  --fg: #eeeeee;
+  --muted: #6b6b6b;
+  --line: #1e1e1e;
+  --panel: #0b0b0b;
+  --accent: #eeeeee;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+               Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px 36px;
+}
+
+.stage {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+/* ── 标题 ─────────────────────────────────────────────── */
+.head { text-align: center; }
+
+.head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.head .sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* ── 画布 ─────────────────────────────────────────────── */
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 512px;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+#matrix {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ── 启动遮罩 ─────────────────────────────────────────── */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.overlay.hidden { opacity: 0; visibility: hidden; }
+
+.overlay-inner { text-align: center; }
+
+.overlay-mark {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  opacity: 0.9;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50%      { transform: scale(1.12); opacity: 0.95; }
+}
+
+.overlay-title { margin: 0; font-size: 14px; letter-spacing: 0.06em; }
+.overlay-hint { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+
+/* ── 控件 ─────────────────────────────────────────────── */
+.controls {
+  width: 100%;
+  max-width: 512px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid #2a2a2a;
+  background: #141414;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn:hover { background: #1d1d1d; border-color: #3a3a3a; }
+.btn:active { background: #262626; }
+
+.btn.primary {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 500;
+}
+
+.btn.primary:hover { background: #fff; }
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.field > span { white-space: nowrap; }
+
+.field output {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  min-width: 62px;
+}
+
+.field.check { cursor: pointer; user-select: none; }
+.field.check input { accent-color: #eeeeee; }
+
+input[type="range"] {
+  appearance: none;
+  width: 108px;
+  height: 3px;
+  border-radius: 2px;
+  background: #2a2a2a;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── 页脚 ─────────────────────────────────────────────── */
+.foot { text-align: center; }
+
+.foot p { margin: 0; font-size: 12px; color: var(--muted); }
+.foot .meta { margin-top: 6px; font-size: 11px; color: #4a4a4a; line-height: 1.6; }
+.foot strong { color: var(--fg); font-weight: 500; }
+
+@media (max-width: 480px) {
+  body { padding: 18px 14px 26px; }
+  .controls { gap: 10px 14px; padding: 12px; }
+  input[type="range"] { width: 80px; }
+}

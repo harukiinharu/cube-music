@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ToneMatrix Web 自检</title>
+</head>
+<body>
+<canvas id="tcanvas" width="16" height="16"></canvas>
+<pre id="results">running…</pre>
+<script src="../src/constants.js"></script>
+<script src="../src/grid.js"></script>
+<script src="../src/audio.js"></script>
+<script src="../src/renderer.js"></script>
+<script>
+(function () {
+  var TM = window.TM, CFG = TM.CONFIG;
+  var lines = [], pass = 0, fail = 0;
+
+  function check(name, ok, detail) {
+    (ok ? pass++ : fail++);
+    lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   ' + detail : ''));
+  }
+  function near(a, b, tol) { return Math.abs(a - b) <= tol; }
+
+  // ── 1. 音高换算 ────────────────────────────────────────
+  check('noteToFrequency(72) = 440 Hz', near(TM.noteToFrequency(72), 440, 1e-9),
+        TM.noteToFrequency(72).toFixed(4));
+  check('noteToFrequency(60) = 220 Hz', near(TM.noteToFrequency(60), 220, 1e-9),
+        TM.noteToFrequency(60).toFixed(4));
+  check('noteToFrequency(96) = 1760 Hz', near(TM.noteToFrequency(96), 1760, 1e-9),
+        TM.noteToFrequency(96).toFixed(4));
+  check('NOTES 表长度与内容', CFG.NOTES.length === 16 &&
+        CFG.NOTES[0] === 96 && CFG.NOTES[15] === 60, CFG.NOTES.join(','));
+
+  // ── 2. 时序 ────────────────────────────────────────────
+  check('barSeconds(120) = 2 s', near(TM.barSeconds(120), 2, 1e-12),
+        TM.barSeconds(120) + ' s');
+  check('stepSeconds(120) = 0.125 s', near(TM.stepSeconds(120), 0.125, 1e-12),
+        TM.stepSeconds(120) + ' s');
+  check('RESOLUTION = 16', CFG.RESOLUTION === 16);
+
+  // ── 3. 包络曲线 ────────────────────────────────────────
+  var curve = TM.buildEnvelopeCurve(96);
+  check('包络首值 = 0.4² = 0.16', near(curve[0], 0.16, 1e-6), curve[0].toFixed(8));
+  check('包络末值 = 0', curve[curve.length - 1] === 0);
+  var monotonic = true;
+  for (var i = 1; i < curve.length; i++) if (curve[i] > curve[i - 1]) monotonic = false;
+  check('包络单调递减（二次衰减）', monotonic);
+  check('包络中点 ≈ 0.16·0.25', near(curve[48], 0.16 * 0.25, 1e-3),
+        curve[48].toFixed(6));
+
+  // ── 4. 网格 ────────────────────────────────────────────
+  var g = new TM.Grid();
+  check('初始为空', g.count() === 0);
+  check('steps[列][行] 索引正确', (function () {
+    g.set(3, 5, true);
+    return g.get(3, 5) === true && g.get(5, 3) === false;
+  })(), 'set(3,5) → get(5,3) 应为 false');
+  check('toggle 返回值', g.toggle(3, 5) === false && g.get(3, 5) === false);
+  g.clear();
+  check('clear 生效', g.count() === 0);
+
+  // ── 5. 扩散场 ──────────────────────────────────────────
+  var grid2 = new TM.Grid();
+  var rnd = new TM.Renderer(document.getElementById('tcanvas'), grid2);
+  grid2.set(4, 7, true);
+  check('setStep 注入种子 -1（mapB[行][列]）', rnd.mapB[7][4] === -1,
+        'mapB[7][4] = ' + rnd.mapB[7][4]);
+  grid2.set(4, 7, false);
+  check('关闭格子同样注入种子', rnd.mapB[7][4] === -1);
+
+  rnd.stepDiffusion(4);
+  var seed = rnd.mapA[7][4];
+  check('种子格扩散后为正', near(seed, 0.85, 1e-9), 'mapA[7][4] = ' + seed.toFixed(4));
+
+  // 波动方程是二阶的：扰动需要第二步才传到相邻格
+  rnd.stepDiffusion(5);
+  var neighbour = rnd.mapA[7][5];
+  check('邻格被带动（波前传播）', neighbour > 0, 'mapA[7][5] = ' + neighbour.toFixed(4));
+
+  // 无种子时应衰减到 0
+  for (var k = 0; k < 80; k++) rnd.stepDiffusion(15);
+  var maxAbs = 0;
+  for (var a = 0; a < 16; a++) for (var b = 0; b < 16; b++)
+    maxAbs = Math.max(maxAbs, Math.abs(rnd.mapA[a][b]));
+  check('无输入时扩散场衰减', maxAbs < 0.01, 'max|mapA| = ' + maxAbs.toFixed(6));
+
+  // ── 6. 离线音频渲染 ────────────────────────────────────
+  var realRandom = Math.random;
+  Math.random = function () { return 0.5; };     // r = 0 → gainL = gainR = 1
+
+  var offline = new OfflineAudioContext(2, 44100 * 0.9, 44100);
+  var eng = new TM.AudioEngine();
+  eng.buildGraph(offline);
+  eng.setVolume(1);
+  eng.synthNote(72, 0);                          // A4 = 440 Hz
+
+  offline.startRendering().then(function (buf) {
+    Math.random = realRandom;
+
+    var L = buf.getChannelData(0);
+    var R = buf.getChannelData(1);
+
+    // 峰值应等于包络峰值 0.16（软限幅在 0.7 以下为线性，不改变幅值）
+    var peak = 0;
+    for (var i2 = 0; i2 < L.length; i2++) peak = Math.max(peak, Math.abs(L[i2]));
+    check('峰值 = 0.16（包络 env² 峰值）', near(peak, 0.16, 0.005), peak.toFixed(5));
+
+    // 零交叉估算频率
+    var crossings = 0, prev = L[44];               // 跳过最开头的几个采样
+    var winEnd = Math.floor(44100 * 0.3);
+    for (var j = 44; j < winEnd; j++) {
+      var cur = L[j];
+      if ((prev < 0 && cur >= 0) || (prev >= 0 && cur < 0)) crossings++;
+      prev = cur;
+    }
+    var freq = crossings / 2 / 0.3;
+    check('频率 ≈ 440 Hz（A4）', near(freq, 440, 8), freq.toFixed(1) + ' Hz');
+
+    // 包络在 t = 0.25 s 处的幅值应为 0.16 · 0.5² = 0.04
+    var s0 = Math.floor(44100 * 0.25), localPeak = 0;
+    for (var m = s0; m < s0 + 300; m++) localPeak = Math.max(localPeak, Math.abs(L[m]));
+    check('t=0.25s 幅值 ≈ 0.04（二次衰减）', near(localPeak, 0.04, 0.012),
+          localPeak.toFixed(5));
+
+    // 干声在 0.5 s 结束；延迟声（375 ms 起）应在 0.5 s 之后仍有残留
+    var tailStart = Math.floor(44100 * 0.52), tailPeak = 0;
+    for (var n = tailStart; n < L.length; n++) tailPeak = Math.max(tailPeak, Math.abs(L[n]));
+    check('延迟声在干声结束后仍有残留', tailPeak > 0.001, tailPeak.toFixed(6));
+
+    // 立体声：随机声像居中时 L、R 应一致
+    var lrDiff = 0;
+    for (var q = 0; q < 2000; q++) lrDiff = Math.max(lrDiff, Math.abs(L[q] - R[q]));
+    check('r=0 时左右声道一致', lrDiff < 1e-6, lrDiff.toExponential(2));
+
+    finish();
+  }).catch(function (e) {
+    Math.random = realRandom;
+    check('离线渲染未抛异常', false, String(e && e.message || e));
+    finish();
+  });
+
+  function finish() {
+    lines.unshift('ToneMatrix Web 自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
+    lines.unshift('');
+    document.getElementById('results').textContent = lines.join('\n');
+    document.title = 'DONE ' + pass + '/' + (pass + fail);
+  }
+})();
+</script>
+</body>
+</html>

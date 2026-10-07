@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>wave</title></head>
+<body><pre id="out">…</pre>
+<canvas id="c" width="16" height="16"></canvas>
+<script src="../src/constants.js"></script>
+<script src="../src/grid.js"></script>
+<script src="../src/renderer.js"></script>
+<script>
+var TM = window.TM;
+var lines = [];
+
+function dump(rnd, title) {
+  lines.push('--- ' + title + ' ---');
+  for (var y = 0; y < 16; y++) {
+    var row = '';
+    for (var x = 0; x < 16; x++) {
+      var v = rnd.mapA[y][x];
+      var a = Math.min(9, Math.round(Math.abs(v) * 10));
+      row += (a === 0 ? '.' : a);
+    }
+    lines.push(row);
+  }
+  lines.push('');
+}
+
+// A. 单点：只播种一次，看波前是否对称
+var g = new TM.Grid();
+var r = new TM.Renderer(document.getElementById('c'), g);
+g.set(1, 8, true);
+for (var i = 0; i < 12; i++) r.stepDiffusion(15);
+dump(r, 'A. 单次种子后 12 帧（mapA）');
+
+// B. 单列持续播种（真实场景：同一列连续 ~8 帧）
+var g2 = new TM.Grid();
+var r2 = new TM.Renderer(document.getElementById('c'), g2);
+g2.set(1, 8, true);
+for (var j = 0; j < 40; j++) r2.stepDiffusion(0);   // next = 1，持续播该列
+dump(r2, 'B. 同一列持续播种 40 帧（mapA）');
+
+// C. 无种子，长时间跑，检查是否残留
+var g3 = new TM.Grid();
+var r3 = new TM.Renderer(document.getElementById('c'), g3);
+g3.set(1, 8, true);
+g3.clear();
+for (var k = 0; k < 200; k++) r3.stepDiffusion(7);
+dump(r3, 'C. 无种子 200 帧（mapA）');
+
+document.getElementById('out').textContent = lines.join('\n');
+document.title = 'DONE';
+</script>
+</body></html>
