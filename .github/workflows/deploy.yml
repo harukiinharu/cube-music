@@ -35,9 +35,11 @@ jobs:
 
       - name: 配置 Pages
         uses: actions/configure-pages@v5
+        # Pages 尚未启用时这一步会失败（首次启用需要仓库管理员权限，CI token 没有）。
+        # 不让它中断构建，真正的错误交给 deploy 步骤报出来，信息更明确。
+        continue-on-error: true
         with:
-          # Pages 尚未启用时尝试自动启用。
-          # 若仓库策略不允许，需要手动到 Settings → Pages 把 Source 设为 GitHub Actions。
+          # 若权限允许就顺手启用；不允许时忽略
           enablement: true
 
       - name: 上传站点产物
