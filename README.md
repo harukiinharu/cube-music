@@ -5,7 +5,7 @@
 不用安装任何东西，打开网页就能玩。
 
 <p align="center">
-  <img src="front.png" width="720" alt="Cube Music 运行截图">
+  <img src="front2.png" width="720" alt="Cube Music 运行截图">
 </p>
 
 ## 在线试玩
