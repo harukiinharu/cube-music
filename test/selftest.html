@@ -257,6 +257,45 @@
   check('持续注入会指数爆炸（故暂停必须停止注入）', blown > 1e6,
         'max|mapA| = ' + blown.toExponential(2));
 
+  // ── 5.4 右键试听的临时描边（flash）─────────────────────
+  // 关键不变式：**只描边，不改填充**。否则暗格整体变亮，会被当成「右键改了格子状态」。
+  var gh = new TM.Grid();
+  var rh = new TM.Renderer(document.getElementById('tcanvas'), gh);
+  rh.showPlayhead = false;
+  rh.showWave = false;                    // 关掉辉光，隔离出描边
+  var HS = rh.scale;
+  function lumAt(r, col, row, dx, dy) {
+    return r.ctx.getImageData(
+      Math.round((col * CFG.CELL + dx) * HS),
+      Math.round((row * CFG.CELL + dy) * HS), 1, 1).data[0];
+  }
+
+  rh.composite(0);
+  var edgeBefore = lumAt(rh, 0, 0, 16, 1);     // 格子上边距（黑）
+  var fillBefore = lumAt(rh, 0, 0, 16, 16);    // 格子中心（填充色）
+  check('描边前：格子中心是暗色、边距是黑', fillBefore < 80 && edgeBefore < 20,
+        '中心 ' + fillBefore + '，边距 ' + edgeBefore);
+
+  check('flash(0,0) 返回 true', rh.flash(0, 0) === true);
+  check('flash 越界返回 false',
+        rh.flash(-1, 0) === false && rh.flash(16, 0) === false && rh.flash(0, 16) === false);
+
+  rh.composite(0);
+  var edgeDuring = lumAt(rh, 0, 0, 16, 1);
+  var fillDuring = lumAt(rh, 0, 0, 16, 16);
+  check('描边出现在格子边距上（变白）',
+        edgeDuring > 200 && edgeDuring > edgeBefore + 150,
+        edgeBefore + ' → ' + edgeDuring);
+  check('描边不改变格子填充色', Math.abs(fillDuring - fillBefore) <= 2,
+        fillBefore + ' → ' + fillDuring);
+  check('flash 不改动图案', gh.count() === 0, 'count = ' + gh.count());
+
+  for (var hi = 0; hi < rh.highlights.length; hi++) rh.highlights[hi].until = 0;
+  rh.composite(0);
+  check('描边到期后消失', lumAt(rh, 0, 0, 16, 1) <= edgeBefore + 2,
+        '回到 ' + lumAt(rh, 0, 0, 16, 1));
+  check('过期条目被清理', rh.highlights.length === 0);
+
   // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
   function fakeAudio(latency) {
     return {

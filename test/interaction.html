@@ -214,6 +214,13 @@ async function run(win, doc) {
   check('试听前网格为空', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
 
   rightClick(2, 5);
+  check('右键在那一格套上描边（告诉用户按的是哪格）',
+        dbg.renderer.highlights.length === 1 &&
+        dbg.renderer.highlights[0].col === 2 && dbg.renderer.highlights[0].row === 5,
+        dbg.renderer.highlights.length
+          ? '(' + dbg.renderer.highlights[0].col + ',' + dbg.renderer.highlights[0].row + ')'
+          : '无描边');
+
   var gotSound = await waitFor(function () { return played.length > 0; }, 1500,
                                '等待右键试听发声');
   check('右键触发发声', gotSound && played.length === 1, '调用 ' + played.length + ' 次');

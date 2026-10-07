@@ -59,6 +59,7 @@
 
     this.showPlayhead = true;
     this.showWave = true;         // 涟漪辉光开关
+    this.highlights = [];         // 右键试听的临时白色描边 [{col,row,until}]
     this.stepIndex = 0;
 
     this.grid.onChange(function (grid, action) {
@@ -112,6 +113,52 @@
     } else {
       this.drawPattern();          // clear 或未知动作 → 整层重绘
     }
+  };
+
+  /**
+   * 在指定格子上套一圈白色描边，持续 ms 毫秒后自动消失。
+   * 用于右键试听时告诉用户「我正在按这一格」。
+   *
+   * 注意：**只描边，不改填充**。曾经试过用波动场的涟漪做反馈，
+   * 但那样会让暗格整体变亮，看起来像右键把格子状态改了（见 AGENTS.md §7）。
+   */
+  Renderer.prototype.flash = function (col, row, ms) {
+    if (!this.grid.inBounds(col, row)) return false;
+    this.highlights.push({
+      col: col,
+      row: row,
+      until: nowMs() + (ms === undefined ? CFG.HIGHLIGHT_MS : ms)
+    });
+    return true;
+  };
+
+  /** 画并清理临时描边。描边落在格子的黑边距上，因此明格暗格都看得见 */
+  Renderer.prototype._drawHighlights = function () {
+    var list = this.highlights;
+    if (!list.length) return;
+
+    var now = nowMs();
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].until <= now) list.splice(i, 1);
+    }
+    if (!list.length) return;
+
+    var ctx = this.ctx;
+    var inset = CFG.HIGHLIGHT_INSET;
+    var side = CELL - 2 * inset;
+    var fade = CFG.HIGHLIGHT_MS * CFG.HIGHLIGHT_FADE;
+
+    ctx.save();
+    ctx.lineWidth = CFG.HIGHLIGHT_WIDTH;
+    ctx.strokeStyle = '#FFFFFF';
+    for (var j = 0; j < list.length; j++) {
+      var h = list[j];
+      var remain = h.until - now;
+      ctx.globalAlpha = remain < fade ? Math.max(0, remain / fade) : 1;
+      roundRect(ctx, h.col * CELL + inset, h.row * CELL + inset, side, side, 4);
+      ctx.stroke();
+    }
+    ctx.restore();
   };
 
   /**
@@ -260,6 +307,9 @@
       ctx.imageSmoothingEnabled = false;
       ctx.globalCompositeOperation = 'source-over';
     }
+
+    // 描边放在最上层，保证辉光不会把它冲淡
+    this._drawHighlights();
   };
 
   /** 推进 + 合成（一次性调用，供测试与简单场景使用） */
@@ -270,8 +320,13 @@
 
   // ────────────────────────────────────────────────────────
 
-  function create2DMap() {
-    var m = new Array(N);
+  function nowMs() {
+    return (global.performance && global.performance.now)
+      ? global.performance.now()
+      : Date.now();
+  }
+
+  function create2DMap() {    var m = new Array(N);
     for (var i = 0; i < N; i++) {
       m[i] = new Float64Array(N);
     }

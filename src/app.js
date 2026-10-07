@@ -167,12 +167,13 @@
   }
 
   /**
-   * 试听某一格对应的音：**只发声**，不改动图案，也不给该格任何视觉变化
-   * —— 右键不应该让格子的黑/白状态看起来变了。
+   * 试听某一格对应的音：发声 + 在该格套一圈白色描边，告诉用户按的是哪一格。
+   * **只描边，不改动图案** —— 右键绝不能让格子的黑/白状态看起来变了。
    * 音频未启动时先启动（boot 内部已 catch，始终会 resolve）。
    */
   function audition(cell) {
     var note = CFG.NOTES[cell.row];
+    renderer.flash(cell.col, cell.row);   // 同步给出「按的是这格」的提示
     boot().then(function () {
       audio.synthNote(note, 0);
     });

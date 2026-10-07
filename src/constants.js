@@ -45,6 +45,12 @@
     DIFFUSE_DAMP: 0.85,          // interval(): 整个结果再 × 0.85（阻尼）
     WAVE_SCALE: 128,             // interval(): 灰度 = v * 128
 
+    // 右键试听时套在那一格上的白色描边（只是描边，不改填充 —— 见 AGENTS.md §7）
+    HIGHLIGHT_MS: 280,           // 持续时间
+    HIGHLIGHT_INSET: 1.2,        // 相对格子边缘的内缩（逻辑像素）
+    HIGHLIGHT_WIDTH: 1.6,        // 线宽（逻辑像素）
+    HIGHLIGHT_FADE: 0.4,         // 末段淡出所占比例
+
     COLORS: {
       background: '#000000',
       on: '#EEEEEE',             // 0xEEEEEE（未减淡）

@@ -42,7 +42,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 63 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 71 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -53,7 +53,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 40 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 41 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 视觉回归（渲染是否被改坏）：
@@ -77,8 +77,8 @@ src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
-test/selftest.html    63 项断言（含离线音频渲染、波场稳定性）
-test/interaction.html 40 项页面级交互断言（iframe + ?debug=1）
+test/selftest.html    71 项断言（含离线音频渲染、波场稳定性、描边不变式）
+test/interaction.html 41 项页面级交互断言（iframe + ?debug=1）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -173,7 +173,7 @@ test/diag.html        频率/节点诊断
 |---|---|
 | 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
 | 左键点击 / 拖动 | 开关方格 |
-| **右键方格** | **试听该格的音**（`audition()`）—— **只发声**，不改图案、不给该格任何视觉变化 |
+| **右键方格** | **试听该格的音**（`audition()`）—— 发声 + 套一圈白色描边，**不改图案、不改填充色** |
 | `#btn-toggle` | 播放 / 暂停 |
 | `#btn-clear` | 清空 |
 | `#btn-wave` | 开关涟漪辉光 |
@@ -184,8 +184,12 @@ test/diag.html        频率/节点诊断
   然后才发出试听的声音。任何"只有左键才应该生效"的指针处理都要加这道闸。
 - 试听的 `contextmenu` 监听挂在 `.canvas-wrap` 上而不是 `canvas` 上：启动前遮罩层
   盖在 canvas 上方，只监听 canvas 会让第一次右键落到遮罩上并弹出浏览器菜单。
-- 试听**不要**加视觉反馈。曾用 `renderer.pulse()` 在该格打一圈涟漪，
-  实际观感是那个暗格"变亮了"，用户会以为右键改动了格子的黑/白状态。
+- **试听的视觉反馈必须是描边，不能是填充。** `renderer.flash(col, row)` 只在格子边距
+  （黑底）上画一圈白色描边，所以明格暗格都看得见。
+  - 反例一：用波动场涟漪（已删除的 `renderer.pulse()`）—— 暗格整体变亮，像被点开了。
+  - 反例二：把描边画成填充白块 —— 就是直接改了格子的颜色。
+  - `test/selftest.html` 有断言守着「填充色不变」（实测描边前后都是 51），
+    撤掉成就会失败，别绕过去。
 
 - 播放状态以 `sequencer.playing` 为唯一真相，按钮文案由 `syncPlayButton()` 派生，
   不要在事件处理里各自维护一个布尔量。
@@ -209,7 +213,8 @@ test/diag.html        频率/节点诊断
    清空只剩按钮入口 —— 这是刻意去掉的，别"顺手加回来"。
 7. **涟漪辉光可开关**（`#btn-wave`）。原作没有这个开关，辉光始终开启。
 8. **右键试听**。原作没有这个交互。右键某一格会单独播一次该格的音（走同一条
-   发声链路，含延迟），**不改动图案，也不给该格任何视觉变化**。
+   发声链路，含延迟），并在该格套一圈白色描边提示「按的是这一格」；
+   **不动图案，也不改格子填充色**。
 
 ## 9. 提交约定
 
