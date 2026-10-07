@@ -153,9 +153,19 @@
   // ────────────────────────────────────────────────────────
   // 每帧合成
   // ────────────────────────────────────────────────────────
-  Renderer.prototype.render = function (stepIndex) {
+
+  /**
+   * 推进波场。调用方应按固定步长驱动（见 app.js），
+   * 这样涟漪的传播速度与显示刷新率无关 —— 60Hz 与 120Hz 屏上观感一致。
+   */
+  Renderer.prototype.simulate = function (stepIndex) {
     this.stepIndex = stepIndex;
     this.stepDiffusion(stepIndex);
+  };
+
+  /** 只做图层合成，不推进波场 */
+  Renderer.prototype.composite = function (stepIndex) {
+    this.stepIndex = stepIndex;
 
     var ctx = this.ctx;
     ctx.globalCompositeOperation = 'source-over';
@@ -173,6 +183,12 @@
     ctx.globalCompositeOperation = 'lighter';
     ctx.drawImage(this.waveBig, 0, 0, SIZE, SIZE);
     ctx.globalCompositeOperation = 'source-over';
+  };
+
+  /** 推进 + 合成（一次性调用，供测试与简单场景使用） */
+  Renderer.prototype.render = function (stepIndex) {
+    this.stepDiffusion(stepIndex);
+    this.composite(stepIndex);
   };
 
   // ────────────────────────────────────────────────────────

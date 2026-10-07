@@ -15,6 +15,8 @@
 
   var CFG = global.TM.CONFIG;
   var NOTE_SECONDS = CFG.NOTE_SECONDS;
+  // 原程序把调制三角波映射到 [1,3]×12 采样，中心即 +24 采样
+  var DELAY_CENTER_OFFSET = (CFG.DELAY_MOD_SAMPLES * 2) / CFG.SAMPLE_RATE;
 
   function AudioEngine() {
     this.ctx = null;
@@ -23,6 +25,7 @@
     this.peakVoices = 0;
     this._envelopeCurve = global.TM.buildEnvelopeCurve(96);
     this.volume = 0.85;
+    this.tempo = CFG.TEMPO;
   }
 
   AudioEngine.prototype.start = function () {
@@ -31,7 +34,6 @@
     var Ctx = global.AudioContext || global.webkitAudioContext;
     var ctx = new Ctx();
     this.buildGraph(ctx);
-    this.loopStart = ctx.currentTime;
 
     return ctx.resume().then(function () {
       return ctx;
@@ -54,14 +56,13 @@
     this.voiceBus.gain.value = 1;
 
     // ── 延迟：干 1.0 / 湿 0.06 / 反馈 0.4 ──────────────────
-    var barSec = global.TM.barSeconds(CFG.TEMPO);
-    var delayBase = CFG.DELAY_BARS * barSec;                       // 0.375 s
+    // 延迟时长按小节计算（原程序 processSignals 每个音频块都重算一次
+    // positionToNumSamples(3/16)，是跟速度走的）。如果写死成 120 BPM 的
+    // 375 ms，换速度后回声会落到步网格之外，听起来「不合拍」。
     var modDepth = CFG.DELAY_MOD_SAMPLES / CFG.SAMPLE_RATE;        // ±0.272 ms
-    // 原程序 p ∈ [1,3]，即围绕 +24 采样摆动
-    var centerOffset = (CFG.DELAY_MOD_SAMPLES * 2) / CFG.SAMPLE_RATE;
 
     this.delay = ctx.createDelay(2.0);
-    this.delay.delayTime.value = delayBase + centerOffset;
+    this.delay.delayTime.value = this.delaySecondsFor(this.tempo) + DELAY_CENTER_OFFSET;
 
     this.delayFeedback = ctx.createGain();
     this.delayFeedback.gain.value = CFG.DELAY_FEEDBACK;
@@ -93,8 +94,7 @@
     this.delay.connect(this.delayFeedback);
     this.delayFeedback.connect(this.delay);
 
-    // ── 循环时基 ───────────────────────────────────────────
-    this.loopStart = ctx.currentTime;
+    // ── 就绪 ───────────────────────────────────────────────
     this.ready = true;
   };
 
@@ -103,8 +103,33 @@
     if (this.master) this.master.gain.value = v;
   };
 
-  AudioEngine.prototype.resetClock = function () {
-    if (this.ready) this.loopStart = this.ctx.currentTime;
+  /** 延迟时长随速度变化：DELAY_BARS 小节 */
+  AudioEngine.prototype.delaySecondsFor = function (bpm) {
+    return CFG.DELAY_BARS * global.TM.barSeconds(bpm);
+  };
+
+  /**
+   * 改速度。除了音序器的步长，延迟时长也必须跟着走，
+   * 否则回声会脱离步网格（原程序每个音频块都重算，是跟随的）。
+   */
+  AudioEngine.prototype.setTempo = function (bpm) {
+    this.tempo = bpm;
+    if (!this.ready) return;
+    var now = this.ctx.currentTime;
+    var target = this.delaySecondsFor(bpm) + DELAY_CENTER_OFFSET;
+    // 平滑过渡，避免拖动滑块时延迟线跳变产生咔哒声
+    this.delay.delayTime.cancelScheduledValues(now);
+    this.delay.delayTime.setTargetAtTime(target, now, 0.05);
+  };
+
+  /**
+   * 输出链路总延迟（秒）。
+   * 此刻写进音频图的样本要再过这么久才从扬声器出来，
+   * 所以「耳朵此刻听到的位置」= currentTime − outputLatency。
+   */
+  AudioEngine.prototype.outputLatency = function () {
+    if (!this.ctx) return 0;
+    return (this.ctx.baseLatency || 0) + (this.ctx.outputLatency || 0);
   };
 
   /**
@@ -164,16 +189,6 @@
 
     osc.start(t0);
     osc.stop(t0 + NOTE_SECONDS + 0.01);
-  };
-
-  /** 用音频时钟计算当前处于第几步，对应 enterFrame 的延迟补偿逻辑 */
-  AudioEngine.prototype.currentStepIndex = function (tempo) {
-    if (!this.ready) return 0;
-    var latency = (this.ctx.baseLatency || 0) + (this.ctx.outputLatency || 0);
-    var pos = (this.ctx.currentTime + latency - this.loopStart) /
-              global.TM.barSeconds(tempo);
-    var step = Math.floor(pos * CFG.RESOLUTION) % CFG.GRID;
-    return step < 0 ? step + CFG.GRID : step;
   };
 
   global.TM.AudioEngine = AudioEngine;

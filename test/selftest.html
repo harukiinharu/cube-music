@@ -10,6 +10,7 @@
 <script src="../src/constants.js"></script>
 <script src="../src/grid.js"></script>
 <script src="../src/audio.js"></script>
+<script src="../src/sequencer.js"></script>
 <script src="../src/renderer.js"></script>
 <script>
 (function () {
@@ -21,6 +22,34 @@
     lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   ' + detail : ''));
   }
   function near(a, b, tol) { return Math.abs(a - b) <= tol; }
+
+  // 出错或超时也要把结果落到 DOM，否则无头抓取只能看到 "running…"
+  var done = false;
+  function report() {
+    if (done) return;
+    done = true;
+    lines.unshift('ToneMatrix Web 自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
+    lines.unshift('');
+    document.getElementById('results').textContent = lines.join('\n');
+    document.title = 'DONE ' + pass + '/' + (pass + fail);
+  }
+  window.addEventListener('error', function (ev) {
+    lines.push('JS ERROR: ' + ev.message + ' @line ' + ev.lineno);
+    fail++;
+    report();
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    lines.push('PROMISE REJECT: ' + (ev.reason && ev.reason.message || ev.reason));
+    fail++;
+    report();
+  });
+  setTimeout(function () {
+    if (!done) {
+      lines.push('WATCHDOG: 8s 内未完成，可能卡在异步渲染');
+      fail++;
+      report();
+    }
+  }, 8000);
 
   // ── 1. 音高换算 ────────────────────────────────────────
   check('noteToFrequency(72) = 440 Hz', near(TM.noteToFrequency(72), 440, 1e-9),
@@ -85,13 +114,109 @@
     maxAbs = Math.max(maxAbs, Math.abs(rnd.mapA[a][b]));
   check('无输入时扩散场衰减', maxAbs < 0.01, 'max|mapA| = ' + maxAbs.toFixed(6));
 
+  // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
+  function fakeAudio(latency) {
+    return {
+      ready: true,
+      ctx: { currentTime: 0 },
+      latency: latency || 0,
+      tempo: 120,
+      synthNote: function () {},
+      setTempo: function (b) { this.tempo = b; },
+      outputLatency: function () { return this.latency; }
+    };
+  }
+
+  var fa = fakeAudio(0);
+  var seq = new TM.Sequencer(fa, new TM.Grid());
+  // 手动铺一条排程：0→10.000, 1→10.125, 2→10.250（120 BPM）
+  seq._scheduleStep(0, 10.000);
+  seq._scheduleStep(1, 10.125);
+  seq._scheduleStep(2, 10.250);
+
+  check('排程前返回 null', seq.stepAtTime(9.999) === null);
+  check('步起点取该步', seq.stepAtTime(10.000) === 0, '给出 ' + seq.stepAtTime(10.000));
+  check('步内返回当前步', seq.stepAtTime(10.120) === 0, '给出 ' + seq.stepAtTime(10.120));
+  check('跨到下一步的瞬间切列', seq.stepAtTime(10.130) === 1, '给出 ' + seq.stepAtTime(10.130));
+  check('末步之后保持末步', seq.stepAtTime(99) === 2, '给出 ' + seq.stepAtTime(99));
+
+  // 改速度：后续步用新步长，已排的步不动 → 反查连续、不跳变
+  seq._scheduleStep(3, 10.375);            // 仍按 120 BPM 排
+  seq.setTempo(240);
+  seq._scheduleStep(4, 10.4375);           // 240 BPM：步长 62.5 ms
+  seq._scheduleStep(5, 10.5000);
+  check('setTempo 传到音频引擎', fa.tempo === 240, '音频侧 tempo = ' + fa.tempo);
+  check('变速后反查仍落在正确步', seq.stepAtTime(10.4374) === 3 &&
+        seq.stepAtTime(10.4375) === 4 && seq.stepAtTime(10.4999) === 4 &&
+        seq.stepAtTime(10.5000) === 5,
+        [10.4374, 10.4375, 10.4999, 10.5000].map(function (t) {
+          return seq.stepAtTime(t);
+        }).join(','));
+
+  // 顺序性：时间轴上的步号必须单调不回退
+  var mono = true, last = -1, prevT = 10.0;
+  for (var tt = 10.0; tt < 10.6; tt += 0.0005) {
+    var s2 = seq.stepAtTime(tt);
+    if (s2 !== null) { if (s2 !== last && (last + 1) % 16 !== s2 % 16) mono = false; last = s2; }
+  }
+  check('步号随时间严格递增不回退', mono, '末值 ' + last);
+
+  // 延迟补偿：耳朵此刻听到的是 currentTime − outputLatency
+  var fa2 = fakeAudio(0.1);
+  var seq2 = new TM.Sequencer(fa2, new TM.Grid());
+  seq2.playing = true;
+  seq2._scheduleStep(0, 10.000);
+  seq2._scheduleStep(1, 10.125);
+  fa2.ctx.currentTime = 10.200;            // 写入头在 10.2
+  check('audibleStep 减去输出延迟（听到 10.1 → 第 0 步）',
+        seq2.audibleStep() === 0, '给出 ' + seq2.audibleStep());
+  fa2.ctx.currentTime = 10.240;            // 听到 10.14 → 第 1 步
+  check('延迟补偿跨步正确', seq2.audibleStep() === 1, '给出 ' + seq2.audibleStep());
+  seq2.playing = false;
+  check('停止时 audibleStep 返回 null', seq2.audibleStep() === null);
+
+  // ── 5.6 延迟时长随速度变化 ─────────────────────────────
+  var eng0 = new TM.AudioEngine();          // 纯数学，无需音频图
+  check('延迟时长 @120BPM = 375 ms',
+        near(eng0.delaySecondsFor(120), 0.375, 1e-12),
+        (eng0.delaySecondsFor(120) * 1000).toFixed(1) + ' ms');
+  check('延迟时长 @60BPM = 750 ms（3 步）',
+        near(eng0.delaySecondsFor(60), 0.75, 1e-12),
+        (eng0.delaySecondsFor(60) * 1000).toFixed(1) + ' ms');
+  check('延迟时长 @180BPM = 250 ms（3 步）',
+        near(eng0.delaySecondsFor(180), 0.25, 1e-12),
+        (eng0.delaySecondsFor(180) * 1000).toFixed(1) + ' ms');
+  check('任意速度下延迟恒为 3 步',
+        [40, 90, 120, 155, 200, 240].every(function (b) {
+          return near(eng0.delaySecondsFor(b) / TM.stepSeconds(b), 3, 1e-9);
+        }));
+
+  var spyEng = new TM.AudioEngine();
+  spyEng.buildGraph(new OfflineAudioContext(2, 4410, 44100));
+  var scheduled = [];
+  var realSet = spyEng.delay.delayTime.setTargetAtTime;
+  spyEng.delay.delayTime.setTargetAtTime = function (v, t, c) {
+    scheduled.push(v); return realSet.call(this, v, t, c);
+  };
+  spyEng.setTempo(60);
+  check('setTempo 会重排延迟时间', scheduled.length === 1,
+        '调用 ' + scheduled.length + ' 次，目标 ' +
+        (scheduled[0] !== undefined ? (scheduled[0] * 1000).toFixed(1) + ' ms' : '无'));
+  check('重排目标 = 750 ms + 中心偏移',
+        scheduled.length === 1 &&
+        near(scheduled[0], 0.75 + (TM.CONFIG.DELAY_MOD_SAMPLES * 2) / 44100, 1e-9),
+        scheduled.length ? scheduled[0].toFixed(6) : '—');
+
   // ── 6. 离线音频渲染 ────────────────────────────────────
+  // 只渲染一次：60 BPM 下延迟 = 3 步 = 750 ms，回声与干声在时间上完全分开，
+  // 便于同时验证波形/包络/声像与「延迟跟随速度」。
   var realRandom = Math.random;
   Math.random = function () { return 0.5; };     // r = 0 → gainL = gainR = 1
 
-  var offline = new OfflineAudioContext(2, 44100 * 0.9, 44100);
+  var offline = new OfflineAudioContext(2, 44100 * 1.2, 44100);
   var eng = new TM.AudioEngine();
-  eng.buildGraph(offline);
+  eng.setTempo(60);                              // 必须在建图前设置：
+  eng.buildGraph(offline);                       // 延迟初值直接取 750 ms，避免过渡期拖尾糊掉测量
   eng.setVolume(1);
   eng.synthNote(72, 0);                          // A4 = 440 Hz
 
@@ -100,6 +225,11 @@
 
     var L = buf.getChannelData(0);
     var R = buf.getChannelData(1);
+    function peakBetween(a, b) {
+      var p = 0, i0 = Math.floor(a * 44100), i1 = Math.min(L.length, Math.floor(b * 44100));
+      for (var i = i0; i < i1; i++) p = Math.max(p, Math.abs(L[i]));
+      return p;
+    }
 
     // 峰值应等于包络峰值 0.16（软限幅在 0.7 以下为线性，不改变幅值）
     var peak = 0;
@@ -123,15 +253,22 @@
     check('t=0.25s 幅值 ≈ 0.04（二次衰减）', near(localPeak, 0.04, 0.012),
           localPeak.toFixed(5));
 
-    // 干声在 0.5 s 结束；延迟声（375 ms 起）应在 0.5 s 之后仍有残留
-    var tailStart = Math.floor(44100 * 0.52), tailPeak = 0;
-    for (var n = tailStart; n < L.length; n++) tailPeak = Math.max(tailPeak, Math.abs(L[n]));
-    check('延迟声在干声结束后仍有残留', tailPeak > 0.001, tailPeak.toFixed(6));
-
     // 立体声：随机声像居中时 L、R 应一致
     var lrDiff = 0;
     for (var q = 0; q < 2000; q++) lrDiff = Math.max(lrDiff, Math.abs(L[q] - R[q]));
     check('r=0 时左右声道一致', lrDiff < 1e-6, lrDiff.toExponential(2));
+
+    // 端到端：60 BPM 下延迟 = 3 步 × 250 ms = 750 ms
+    // 干声在 0.5 s 收尾，若延迟仍写死 375 ms，0.52~0.70 区间就会有明显能量
+    var quiet = peakBetween(0.52, 0.70);
+    var echo = peakBetween(0.75, 0.80);
+    check('60BPM：0.52–0.70 s 安静（延迟没有停在 375 ms）', quiet < 0.001,
+          quiet.toFixed(6));
+    check('60BPM：回声落在 750 ms（延迟跟随速度）', echo > 0.003 && echo < 0.02,
+          echo.toFixed(6));
+    check('峰值 0.16 与干声结束一致（延迟湿声仅 6%）',
+          near(peak, 0.16, 0.005) && echo < peak * 0.2, 'echo/peak = ' +
+          (echo / peak).toFixed(4));
 
     finish();
   }).catch(function (e) {
@@ -140,12 +277,7 @@
     finish();
   });
 
-  function finish() {
-    lines.unshift('ToneMatrix Web 自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
-    lines.unshift('');
-    document.getElementById('results').textContent = lines.join('\n');
-    document.title = 'DONE ' + pass + '/' + (pass + fail);
-  }
+  function finish() { report(); }
 })();
 </script>
 </body>

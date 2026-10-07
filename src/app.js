@@ -26,7 +26,7 @@
 
     bindInput();
     bindControls();
-    loop();
+    requestAnimationFrame(loop);
   }
 
   // ── 启动（浏览器要求先有用户手势才能出声）─────────────────
@@ -133,12 +133,38 @@
   }
 
   // ── 主循环 ──────────────────────────────────────────────
-  function loop() {
-    var step = sequencer.playing
-      ? audio.currentStepIndex(sequencer.tempo)
-      : renderer.stepIndex;
-    renderer.render(step);
+  //
+  // 波场用固定步长推进，与显示刷新率解耦：60Hz 与 120Hz 屏上涟漪速度一致。
+  // 播放头位置则来自音序器的真实排程反查（audibleStep），
+  // 因此任何速度下都与听到的声音对齐，改速度也不会跳。
+  var SIM_DT = 1 / 60;
+  var MAX_CATCHUP = 5;          // 单帧最多补算几步，避免切回标签页时追帧
+  var simAccumulator = 0;
+  var lastFrameTime = 0;
+
+  function loop(now) {
     requestAnimationFrame(loop);
+
+    var dt = lastFrameTime ? (now - lastFrameTime) / 1000 : SIM_DT;
+    lastFrameTime = now;
+    if (dt > 0.25) {           // 标签页刚切回来，重新起步
+      dt = SIM_DT;
+      simAccumulator = 0;
+    }
+
+    var step = sequencer.audibleStep();
+    if (step === null || step === undefined) step = renderer.stepIndex;
+
+    simAccumulator += dt;
+    var n = 0;
+    while (simAccumulator >= SIM_DT && n < MAX_CATCHUP) {
+      renderer.simulate(step);
+      simAccumulator -= SIM_DT;
+      n++;
+    }
+    if (n >= MAX_CATCHUP) simAccumulator = 0;
+
+    renderer.composite(step);
   }
 
   if (document.readyState === 'loading') {
