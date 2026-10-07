@@ -26,8 +26,16 @@
     // ── 网格与视觉（PatternView）──────────────────────────
     GRID: 16,                    // 16 × 16
     CELL: 32,                    // 每格像素（new PatternView(32, ...)）
-    BLUR_CELL: 3,                // 格子贴图 BlurFilter(3,3,3)
-    BLUR_WAVE: 12,               // 波纹 BlurFilter(12,12,2)
+    CELL_INSET: 3,               // 方块相对格子的内缩
+    CELL_RADIUS: 2,              // 方块圆角
+
+    // 模糊半径。离屏图层按设备分辨率渲染，因此这里统一用「设备像素」，
+    // 不再随 DPI 缩放 —— 这样 retine 屏上边缘锐利，且与 1x 屏观感一致。
+    // 原 Flash 版是 BlurFilter(3) 作用在 512 逻辑空间；若照搬，
+    // 在 2x 屏上会变成 6 设备像素并填满 6px 的格子间隙，导致整体发糊。
+    BLUR_CELL: 1.4,              // 格子边缘柔化
+    BLUR_WAVE: 24,               // 波纹辉光（原 12 逻辑像素）
+
     DIFFUSE_SUM: 0.5,            // interval(): 四邻域之和 × 0.5
     DIFFUSE_DAMP: 0.85,          // interval(): 整个结果再 × 0.85（阻尼）
     WAVE_SCALE: 128,             // interval(): 灰度 = v * 128

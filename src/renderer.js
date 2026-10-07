@@ -24,23 +24,27 @@
     this.canvas = canvas;
     this.grid = grid;
 
-    this.scale = Math.min(global.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(SIZE * this.scale);
-    canvas.height = Math.round(SIZE * this.scale);
+    // 设备像素比。所有离屏图层都按设备分辨率渲染，主画布绘制时再缩回逻辑坐标，
+    // 这样位图与屏幕像素 1:1 对应，不会被浏览器二次重采样。
+    this.scale = Math.min(global.devicePixelRatio || 1, 3);
+    this.devSize = Math.round(SIZE * this.scale);
+
+    canvas.width = this.devSize;
+    canvas.height = this.devSize;
 
     this.ctx = canvas.getContext('2d');
     this.ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
 
-    // ── 图层 1：格子底图 ───────────────────────────────────
-    this.patternLayer = makeCanvas(SIZE, SIZE);
+    // ── 图层 1：格子底图（设备分辨率）─────────────────────
+    this.patternLayer = makeCanvas(this.devSize, this.devSize);
     this.patternCtx = this.patternLayer.getContext('2d');
 
-    // ── 图层 3：波纹 ───────────────────────────────────────
+    // ── 图层 3：波纹（设备分辨率）─────────────────────────
     this.waveSmall = makeCanvas(N, N);
     this.waveSmallCtx = this.waveSmall.getContext('2d');
     this.waveImage = this.waveSmallCtx.createImageData(N, N);
 
-    this.waveBig = makeCanvas(SIZE, SIZE);
+    this.waveBig = makeCanvas(this.devSize, this.devSize);
     this.waveBigCtx = this.waveBig.getContext('2d');
 
     // ── 扩散场（对应 _mapA / _mapB）────────────────────────
@@ -65,18 +69,25 @@
   // ────────────────────────────────────────────────────────
   Renderer.prototype.drawPattern = function () {
     var c = this.patternCtx;
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = CFG.COLORS.background;
-    c.fillRect(0, 0, SIZE, SIZE);
+    var S = this.scale;
+    var D = this.devSize;
 
-    // 原程序：BitmapData(size,size,false,0) 黑底 + 26×26 浅色方块 + BlurFilter(3)
-    c.filter = 'blur(' + CFG.BLUR_CELL + 'px)';
+    // 离屏层不使用变换，尺寸与滤镜半径都用设备像素，避免 ctx.filter 的单位歧义
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.filter = 'none';
+    c.fillStyle = CFG.COLORS.background;
+    c.fillRect(0, 0, D, D);
+
+    var inset = CFG.CELL_INSET * S;
+    var side = (CELL - 2 * CFG.CELL_INSET) * S;
+    var radius = CFG.CELL_RADIUS * S;
+    var step = CELL * S;
+
+    c.filter = 'blur(' + (CFG.BLUR_CELL * S) + 'px)';
     for (var col = 0; col < N; col++) {
       for (var row = 0; row < N; row++) {
         c.fillStyle = this.grid.get(col, row) ? CFG.COLORS.on : CFG.COLORS.off;
-        roundRect(c,
-          col * CELL + 3, row * CELL + 3,
-          CELL - 6, CELL - 6, 2);
+        roundRect(c, col * step + inset, row * step + inset, side, side, radius);
         c.fill();
       }
     }
@@ -128,13 +139,14 @@
 
     this.waveSmallCtx.putImageData(this.waveImage, 0, 0);
 
-    // 放大 32 倍后模糊 12px（对应 Bitmap.scaleX=32 + BlurFilter(12,12,2)）
+    // 放大到设备分辨率后模糊（对应 Bitmap.scaleX=32 + BlurFilter(12,12,2)）
     var wb = this.waveBigCtx;
+    var D = this.devSize;
     wb.setTransform(1, 0, 0, 1, 0, 0);
-    wb.clearRect(0, 0, SIZE, SIZE);
+    wb.clearRect(0, 0, D, D);
     wb.imageSmoothingEnabled = false;
-    wb.filter = 'blur(' + CFG.BLUR_WAVE + 'px)';
-    wb.drawImage(this.waveSmall, 0, 0, SIZE, SIZE);
+    wb.filter = 'blur(' + (CFG.BLUR_WAVE * this.scale) + 'px)';
+    wb.drawImage(this.waveSmall, 0, 0, D, D);
     wb.filter = 'none';
   };
 
