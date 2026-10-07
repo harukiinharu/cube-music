@@ -258,3 +258,19 @@ test/diag.html        频率/节点诊断
 - **写完回归测试，把修复撤掉再跑一遍**，确认它确实会失败。
   不会失败的回归测试等于没写。撤掉后失败的条目数应与新增断言数吻合。
 - 改速度相关的逻辑时，重点验证 60 / 90 / 120 / 180 / 240 BPM 五个点。
+
+## 11. 发布与部署
+
+- **在线地址**：<https://harukiinharu.github.io/cube-music/>
+- **远程**：`origin` = `github-haruki:harukiinharu/cube-music`（SSH 别名，认证身份 `harukiinharu`）。
+  ⚠️ 本机 `gh` CLI 登录的是**另一个账号**，对该仓库只有读权限 —— 所以
+  **推送走 git/SSH 没问题，但任何仓库设置（启用 Pages、改 Actions 权限）都得在网页端操作**。
+- **自动化**：`.github/workflows/deploy.yml`。push 到 `main` 即触发：
+  跑 `scripts/ci-test.sh` → 组装 `_site/` → 部署到 Pages。**回归不通过就不部署。**
+- 只有 `index.html` / `style.css` / `src/` / `test/` / `AGENTS.md` / `preview-render.png`
+  会被发布；`.github/` 与 `scripts/` 不进站点。
+- 站点是**项目页**（仓库名就是路径前缀），所有资源引用必须保持**相对路径**，
+  不要写成 `/src/...`，否则在 `harukiinharu.github.io/cube-music/` 下会 404。
+- 本地跑同一套回归：`bash scripts/ci-test.sh`
+  （退出码 0 = 通过，1 = 有失败；找不到 Chrome 会跳过并返回 0）。
+- 发布新版本：`git tag -a vX.Y.Z -m "..."` 并 `git push origin main --tags`。
