@@ -216,6 +216,47 @@
   var lumOff = maxLum(rw);
   check('关闭涟漪后画面最亮不超过 #EEEEEE(238)', lumOff <= 238, 'max = ' + lumOff);
 
+  // ── 5.3 暂停时涟漪必须衰减，不能持续被泵高 ─────────────
+  // 背景：暂停时步号冻结，若继续向「下一步那一列」注入种子，
+  // 等于对同一列无限次重复激励，波场会指数爆炸（实测 3000 帧达 1e283），
+  // 叠加 ADD 辉光后铺满整屏。所以暂停时必须传 seed = false。
+  function absMaxField(m) {
+    var x = 0;
+    for (var i = 0; i < 16; i++) {
+      for (var j = 0; j < 16; j++) x = Math.max(x, Math.abs(m[i][j]));
+    }
+    return x;
+  }
+
+  var gz = new TM.Grid();
+  var rz = new TM.Renderer(document.getElementById('tcanvas'), gz);
+  for (var zc = 0; zc < 16; zc++) gz.set(5, zc, true);      // 满列
+
+  for (var zf = 0; zf < 8; zf++) rz.stepDiffusion(4, true);  // next=5，按播放节奏泵一次
+  var peakBefore = absMaxField(rz.mapA);
+  check('播放节奏下波场有界（满列 8 帧）', peakBefore > 0.01 && peakBefore < 100,
+        'peak = ' + peakBefore.toFixed(3));
+
+  var grown = 0;
+  for (var zo = 0; zo < 180; zo++) {                        // 暂停 3 秒
+    rz.stepDiffusion(4, false);
+    grown = Math.max(grown, absMaxField(rz.mapA));
+  }
+  var peakAfter = absMaxField(rz.mapA);
+  check('暂停时波场不再增长', grown <= peakBefore * 1.0001,
+        grown.toFixed(4) + ' vs 初始 ' + peakBefore.toFixed(4));
+  check('暂停时涟漪逐渐衰减消失', peakAfter < peakBefore * 0.02 && peakAfter < 0.1,
+        peakBefore.toFixed(3) + ' → ' + peakAfter.toFixed(6));
+
+  // 反向验证：持续注入确实会失控 —— 这条锁死「暂停必须停止注入」的原因
+  var gb = new TM.Grid();
+  var rb = new TM.Renderer(document.getElementById('tcanvas'), gb);
+  for (var bc = 0; bc < 16; bc++) gb.set(5, bc, true);
+  for (var bf = 0; bf < 900; bf++) rb.stepDiffusion(4, true);
+  var blown = absMaxField(rb.mapA);
+  check('持续注入会指数爆炸（故暂停必须停止注入）', blown > 1e6,
+        'max|mapA| = ' + blown.toExponential(2));
+
   // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
   function fakeAudio(latency) {
     return {

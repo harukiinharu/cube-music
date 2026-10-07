@@ -45,6 +45,54 @@ g3.clear();
 for (var k = 0; k < 200; k++) r3.stepDiffusion(7);
 dump(r3, 'C. 无种子 200 帧（mapA）');
 
+function absMax(m) {
+  var x = 0;
+  for (var i = 0; i < 16; i++) for (var j = 0; j < 16; j++)
+    x = Math.max(x, Math.abs(m[i][j]));
+  return x;
+}
+
+// D. 暂停场景：步号冻结但持续注入种子（修复前的行为）
+//    满列 16 个格子被无限次重复激励 → 场会一直涨上去
+var g4 = new TM.Grid();
+var r4 = new TM.Renderer(document.getElementById('c'), g4);
+for (var c = 0; c < 16; c++) g4.set(5, c, true);
+var grow = [];
+for (var m = 0; m < 3000; m++) {
+  r4.stepDiffusion(4, true);          // next=5，固定步号 + 一直注入该列
+  if (m % 300 === 299) grow.push(Math.round(absMax(r4.mapA) * 100) / 100);
+}
+lines.push('D. 暂停但持续注入种子（旧行为）max|mapA| 每 300 帧：' + grow.join(' → '));
+lines.push('   （换算成灰度会全部钳到 255，叠加 ADD 辉光即铺满整屏）');
+lines.push('');
+
+// E. 修复后的行为：暂停时不注入种子，只传播 + 衰减
+var g5 = new TM.Grid();
+var r5 = new TM.Renderer(document.getElementById('c'), g5);
+for (var c2 = 0; c2 < 16; c2++) g5.set(5, c2, true);
+for (var n2 = 0; n2 < 60; n2++) r5.stepDiffusion(4, true);   // next=5，先泵出涟漪
+var decay = [Math.round(absMax(r5.mapA) * 1000) / 1000];
+for (var p = 0; p < 300; p++) {
+  r5.stepDiffusion(4, false);         // 暂停：不再注入
+  if (p % 60 === 59) decay.push(Math.round(absMax(r5.mapA) * 1000) / 1000);
+}
+lines.push('E. 暂停且停止注入（修复后）max|mapA| 每 60 帧：' + decay.join(' → '));
+lines.push('');
+
+// F. 正常播放的稳定性：步号每 8 帧前进一次（120 BPM @ 60fps），两列满格。
+//    验证「注入会失控」只发生在步号冻结时，正常播放有界。
+var g6 = new TM.Grid();
+var r6 = new TM.Renderer(document.getElementById('c'), g6);
+for (var c3 = 0; c3 < 16; c3++) { g6.set(0, c3, true); g6.set(8, c3, true); }
+var hist = [];
+for (var f2 = 0; f2 < 60 * 60; f2++) {   // 60 秒
+  var st = Math.floor(f2 / 8) % 16;
+  r6.stepDiffusion(st, true);
+  if (f2 % 300 === 299) hist.push(Math.round(absMax(r6.mapA) * 100) / 100);
+}
+lines.push('F. 正常播放（每 8 帧前进，两列满格）max|mapA| 每 5 秒：' + hist.join(' → '));
+lines.push('');
+
 document.getElementById('out').textContent = lines.join('\n');
 document.title = 'DONE';
 </script>

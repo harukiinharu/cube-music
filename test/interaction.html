@@ -81,19 +81,43 @@ async function run(win, doc) {
   check('标注灵感来源 warma', sub && /warma/.test(sub.textContent),
         sub ? sub.textContent.trim() : '缺失');
 
-  // ── 涟漪开关 ───────────────────────────────────────────
+  // ── 涟漪 / 播放列开关（同款 toggle 按钮）───────────────
   var wave = doc.getElementById('btn-wave');
   check('存在涟漪开关按钮', !!wave);
-  check('初始为开', dbg.renderer.showWave === true &&
-        wave.getAttribute('aria-pressed') === 'true' && /开/.test(wave.textContent),
-        wave.textContent.trim());
+  check('涟漪初始为开', dbg.renderer.showWave === true &&
+        wave.getAttribute('aria-pressed') === 'true', wave.textContent.trim());
   wave.click();
-  check('点击后为关', dbg.renderer.showWave === false &&
-        wave.getAttribute('aria-pressed') === 'false' && /关/.test(wave.textContent),
-        wave.textContent.trim());
+  check('涟漪点击后为关', dbg.renderer.showWave === false &&
+        wave.getAttribute('aria-pressed') === 'false', wave.textContent.trim());
   wave.click();
-  check('再点恢复为开', dbg.renderer.showWave === true &&
-        /开/.test(wave.textContent), wave.textContent.trim());
+  check('涟漪再点恢复为开', dbg.renderer.showWave === true &&
+        wave.getAttribute('aria-pressed') === 'true', wave.textContent.trim());
+
+  var head = doc.getElementById('btn-playhead');
+  check('存在播放列开关且初始为开',
+        !!head && head.getAttribute('aria-pressed') === 'true' &&
+        dbg.renderer.showPlayhead === true);
+  head.click();
+  check('播放列可关闭', dbg.renderer.showPlayhead === false &&
+        head.getAttribute('aria-pressed') === 'false');
+  head.click();
+  check('播放列可恢复', dbg.renderer.showPlayhead === true &&
+        head.getAttribute('aria-pressed') === 'true');
+
+  // ── 控件布局：操作行 / 参数行分开 ───────────────────────
+  check('操作行含 4 个按钮（暂停/清空/涟漪/播放列）',
+        doc.querySelectorAll('.ctl-actions .btn').length === 4,
+        '实际 ' + doc.querySelectorAll('.ctl-actions .btn').length);
+  check('参数行含 2 个标签（速度/音量）',
+        doc.querySelectorAll('.ctl-fields .f-label').length === 2,
+        '实际 ' + doc.querySelectorAll('.ctl-fields .f-label').length);
+  var volOut = doc.getElementById('volume-out');
+  check('音量显示百分比', volOut && /85/.test(volOut.textContent),
+        volOut ? volOut.textContent.trim() : '缺失');
+  var tempoOut = doc.getElementById('tempo-out');
+  check('速度显示 BPM', tempoOut && /120/.test(tempoOut.textContent),
+        tempoOut ? tempoOut.textContent.trim() : '缺失');
+  check('旧的复选框已移除', !doc.getElementById('playhead'));
 
   // ── 音频启动 ───────────────────────────────────────────
   var play = doc.getElementById('btn-toggle');

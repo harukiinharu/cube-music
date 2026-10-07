@@ -42,7 +42,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 59 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 63 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -53,7 +53,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 22 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 30 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 视觉回归（渲染是否被改坏）：
@@ -77,8 +77,8 @@ src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
-test/selftest.html    59 项断言（含离线音频渲染）
-test/interaction.html 22 项页面级交互断言（iframe + ?debug=1）
+test/selftest.html    63 项断言（含离线音频渲染、波场稳定性）
+test/interaction.html 30 项页面级交互断言（iframe + ?debug=1）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -148,6 +148,12 @@ test/diag.html        频率/节点诊断
   > 局部重绘不再精确）。此时必须接受拖动变卡，或者改用带 padding 的区域重绘。
 - 波场用**固定步长**（`app.js` 的 `SIM_DT = 1/60`）推进，与显示刷新率解耦，
   否则 60Hz 与 120Hz 屏上涟漪速度不一致。
+- **暂停时不得注入种子**：`renderer.simulate(step, seed)` 的 `seed` 必须传
+  `sequencer.playing`。被注入的格子当帧会失去回正项（`−mapB` 变成常量 `+1`），
+  等价于一个对邻域求和的积分器；步号冻结时同一列被无限次重复激励，
+  波场会**指数爆炸**（实测 3000 帧达 `1e283`），叠加 ADD 辉光后铺满整屏。
+  停止注入后涟漪只做传播 + 阻尼衰减，约 1 秒内自然消失（实测 3 秒内
+  从 13.556 降到 0.000005）。正常播放是有界的（60 秒实测峰值 4.16 且无爬升趋势）。
 - Canvas 2D 没有 `subtract` 合成模式，所以「底图 + 减淡」两层按公式预计算颜色后直接上色。
 
 ## 7. 输入约定
@@ -167,13 +173,18 @@ test/diag.html        频率/节点诊断
 |---|---|
 | 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
 | 点击 / 拖动画布 | 开关方格 |
-| `#btn-clear` 按钮 | 清空 |
-| `#btn-wave` 按钮 | 开关涟漪辉光 |
+| `#btn-toggle` | 播放 / 暂停 |
+| `#btn-clear` | 清空 |
+| `#btn-wave` | 开关涟漪辉光 |
+| `#btn-playhead` | 开关播放列高亮 |
 
 - 播放状态以 `sequencer.playing` 为唯一真相，按钮文案由 `syncPlayButton()` 派生，
   不要在事件处理里各自维护一个布尔量。
-- 涟漪状态以 `renderer.showWave` 为唯一真相，`setWave()` 负责同步按钮的
-  `aria-pressed` 与文案。关掉涟漪会同时清空波动场并停掉每帧推进（见 §6）。
+- 显示开关统一用 `.btn.toggle` 组件：**用 `aria-pressed` 表示状态**（圆点亮度 + 整块明暗），
+  **文案里不写「开/关」**，避免按钮宽度随状态跳动。`setWave()` / `setPlayhead()`
+  是唯一入口，状态各自以 `renderer.showWave` / `renderer.showPlayhead` 为准。
+- 控件布局固定为两行（`.ctl-actions` / `.ctl-fields`），参数行是
+  `标签 | 滑块 | 数值` 的三列网格 —— 不要在按钮行里混排滑块，否则换行不可控。
 
 ## 8. 已知的有意偏差（相对原作）
 
@@ -218,4 +229,10 @@ test/diag.html        频率/节点诊断
 - 截图核对：`--headless=new --force-device-scale-factor=2 --screenshot=...`，
   再用 Pillow 做像素分析。
 - macOS **没有 `timeout` 命令**，用了会 `exit 127` 且无输出，别误判成"页面挂了"。
+- 画面「逐渐被填满 / 发白」这类问题，**先量模型状态，不要盯着截图猜**：
+  把波动场 max 值按帧打印出来（见 `test/wave.html` 场景 D/E/F），
+  能立刻区分是「衰减不动」还是「被持续驱动」，也能顺手确认正常播放是否有界。
+- **探针本身也会写错**，跑之前先自检两件事：索引对不对（`stepDiffusion(n)` 播种的是
+  `n+1` 列，不是 `n` 列）、单位/取整有没有吃掉信号（`Math.round(0.85)` = `1`，
+  会让你以为场是空的；要用 `Math.round(v * 1000) / 1000`）。
 - 改速度相关的逻辑时，重点验证 60 / 90 / 120 / 180 / 240 BPM 五个点。

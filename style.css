@@ -120,14 +120,47 @@ body {
   width: 100%;
   max-width: 512px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
+  flex-direction: column;
+  gap: 14px;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
 }
+
+.ctl-row { display: flex; align-items: center; }
+
+.ctl-actions { gap: 8px; flex-wrap: wrap; }
+
+/* 动作组与显示开关组之间的分组竖线 */
+.ctl-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: #2a2a2a;
+}
+
+/* 参数区对齐成列：标签 / 滑块 / 数值 */
+.ctl-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.f-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+.f-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  text-align: right;
+  min-width: 58px;
+  white-space: nowrap;
+}
+
+.f-range { width: 100%; min-width: 72px; }
 
 .btn {
   appearance: none;
@@ -136,10 +169,10 @@ body {
   color: var(--fg);
   font: inherit;
   font-size: 13px;
-  padding: 7px 16px;
+  padding: 7px 15px;
   border-radius: 7px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .btn:hover { background: #1d1d1d; border-color: #3a3a3a; }
@@ -154,7 +187,9 @@ body {
 
 .btn.primary:hover { background: #fff; }
 
-/* 开关型按钮：用左侧小圆点表示状态，避免和 primary 的白色块撞脸 */
+/* 开关型按钮：左侧小圆点 + 整块明暗表示状态，避免和 primary 的白色块撞脸 */
+.btn.toggle { min-width: 78px; }
+
 .btn.toggle::before {
   content: '';
   display: inline-block;
@@ -164,36 +199,26 @@ body {
   border-radius: 50%;
   vertical-align: middle;
   background: currentColor;
-  opacity: 0.3;
+  opacity: 0.28;
   transition: opacity 0.15s ease;
 }
 
-.btn.toggle[aria-pressed="true"]::before { opacity: 1; }
-.btn.toggle[aria-pressed="false"] { color: var(--muted); }
-.btn.toggle { min-width: 92px; }
-
-.field {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.field > span { white-space: nowrap; }
-
-.field output {
-  font-variant-numeric: tabular-nums;
+.btn.toggle[aria-pressed="true"] {
   color: var(--fg);
-  min-width: 62px;
+  background: #1d1d1d;
+  border-color: #3a3a3a;
 }
 
-.field.check { cursor: pointer; user-select: none; }
-.field.check input { accent-color: #eeeeee; }
+.btn.toggle[aria-pressed="true"]::before { opacity: 1; }
+
+.btn.toggle[aria-pressed="false"] {
+  color: var(--muted);
+  background: #101010;
+  border-color: #232323;
+}
 
 input[type="range"] {
   appearance: none;
-  width: 108px;
   height: 3px;
   border-radius: 2px;
   background: #2a2a2a;

@@ -26,25 +26,25 @@
   </div>
 
   <div class="controls">
-    <button id="btn-toggle" class="btn primary">暂停</button>
-    <button id="btn-clear" class="btn">清空</button>
-    <button id="btn-wave" class="btn toggle" aria-pressed="true">涟漪 开</button>
+    <!-- 第一行：动作 + 显示开关（用竖线分组） -->
+    <div class="ctl-row ctl-actions">
+      <button id="btn-toggle" class="btn primary">暂停</button>
+      <button id="btn-clear" class="btn">清空</button>
+      <span class="ctl-sep" aria-hidden="true"></span>
+      <button id="btn-wave" class="btn toggle" aria-pressed="true">涟漪</button>
+      <button id="btn-playhead" class="btn toggle" aria-pressed="true">播放列</button>
+    </div>
 
-    <label class="field">
-      <span>速度</span>
-      <input id="tempo" type="range" min="40" max="240" step="1" value="120">
-      <output id="tempo-out">120 BPM</output>
-    </label>
+    <!-- 第二行：参数。两行对齐成一列：标签 / 滑块 / 数值 -->
+    <div class="ctl-row ctl-fields">
+      <label class="f-label" for="tempo">速度</label>
+      <input id="tempo" class="f-range" type="range" min="40" max="240" step="1" value="120">
+      <output id="tempo-out" class="f-value" for="tempo">120 BPM</output>
 
-    <label class="field">
-      <span>音量</span>
-      <input id="volume" type="range" min="0" max="100" step="1" value="85">
-    </label>
-
-    <label class="field check">
-      <input id="playhead" type="checkbox" checked>
-      <span>显示播放列</span>
-    </label>
+      <label class="f-label" for="volume">音量</label>
+      <input id="volume" class="f-range" type="range" min="0" max="100" step="1" value="85">
+      <output id="volume-out" class="f-value" for="volume">85%</output>
+    </div>
   </div>
 
   <footer class="foot">

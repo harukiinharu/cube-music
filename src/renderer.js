@@ -157,15 +157,28 @@
   // ────────────────────────────────────────────────────────
   // 波动场：对应 interval()
   // ────────────────────────────────────────────────────────
-  Renderer.prototype.stepDiffusion = function (stepIndex) {
+
+  /**
+   * 推进一帧波动场。
+   * @param {number}  stepIndex 当前步号
+   * @param {boolean} [seed]    是否向「即将播放的列」注入种子，默认 true。
+   *
+   * 暂停时必须传 false：暂停时步号冻结，若继续注入种子就等于对同一列
+   * 无限次重复激励，波场会被持续泵高直到铺满整个画面。
+   * 不注入时波场只做传播 + 阻尼衰减，涟漪会自然向外扩散消失。
+   */
+  Renderer.prototype.stepDiffusion = function (stepIndex, seed) {
+    if (seed === undefined) seed = true;
     var next = (stepIndex + 1) % N;
     var mapA = this.mapA;
     var mapB = this.mapB;
     var data = this.waveImage.data;
 
     // 1) 种子：下一步将要触发的格子
-    for (var r = 0; r < N; r++) {
-      if (this.grid.get(next, r)) mapB[r][next] = SEED_VALUE;
+    if (seed) {
+      for (var r = 0; r < N; r++) {
+        if (this.grid.get(next, r)) mapB[r][next] = SEED_VALUE;
+      }
     }
 
     // 2) 二维波动方程（leapfrog 格式）+ 阻尼
@@ -216,10 +229,11 @@
   /**
    * 推进波场。调用方应按固定步长驱动（见 app.js），
    * 这样涟漪的传播速度与显示刷新率无关 —— 60Hz 与 120Hz 屏上观感一致。
+   * 暂停时传 seed = false，让已有涟漪自然扩散衰减。
    */
-  Renderer.prototype.simulate = function (stepIndex) {
+  Renderer.prototype.simulate = function (stepIndex, seed) {
     this.stepIndex = stepIndex;
-    this.stepDiffusion(stepIndex);
+    this.stepDiffusion(stepIndex, seed);
   };
 
   /** 只做图层合成，不推进波场 */

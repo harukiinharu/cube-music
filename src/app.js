@@ -73,18 +73,21 @@
     if (btn) btn.textContent = sequencer.playing ? '暂停' : '播放';
   }
 
-  // ── 涟漪开关 ────────────────────────────────────────────
-  function setWave(on) {
-    renderer.setWaveEnabled(on);
-    var btn = document.getElementById('btn-wave');
-    if (btn) {
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-      btn.textContent = on ? '涟漪 开' : '涟漪 关';
-    }
+  // ── 显示开关 ────────────────────────────────────────────
+  // 状态一律以 renderer 上的字段为准，按钮外观由这里派生，避免两处不同步。
+  function syncToggle(id, on) {
+    var btn = document.getElementById(id);
+    if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
-  function toggleWave() {
-    setWave(!renderer.showWave);
+  function setWave(on) {
+    renderer.setWaveEnabled(on);
+    syncToggle('btn-wave', renderer.showWave);
+  }
+
+  function setPlayhead(on) {
+    renderer.showPlayhead = !!on;
+    syncToggle('btn-playhead', renderer.showPlayhead);
   }
 
   // ── 交互 ────────────────────────────────────────────────
@@ -175,7 +178,11 @@
     });
 
     document.getElementById('btn-wave').addEventListener('click', function () {
-      toggleWave();
+      setWave(!renderer.showWave);
+    });
+
+    document.getElementById('btn-playhead').addEventListener('click', function () {
+      setPlayhead(!renderer.showPlayhead);
     });
 
     var tempo = document.getElementById('tempo');
@@ -187,14 +194,8 @@
     var vol = document.getElementById('volume');
     vol.addEventListener('input', function () {
       audio.setVolume(vol.value / 100);
+      document.getElementById('volume-out').textContent = vol.value + '%';
     });
-
-    var head = document.getElementById('playhead');
-    if (head) {
-      head.addEventListener('change', function () {
-        renderer.showPlayhead = head.checked;
-      });
-    }
   }
 
   function readTempo() {
@@ -224,12 +225,14 @@
     var step = sequencer.audibleStep();
     if (step === null || step === undefined) step = renderer.stepIndex;
 
-    // 涟漪关掉时整段跳过：省掉每帧的波动场推进
+    // 涟漪关掉时整段跳过：省掉每帧的波动场推进。
+    // 暂停时仍然推进（让已有涟漪扩散衰减），但不再注入种子 —— 暂停时步号冻结，
+    // 继续注入等于对同一列无限次重复激励，波场会被泵高直到铺满整屏。
     if (renderer.showWave) {
       simAccumulator += dt;
       var n = 0;
       while (simAccumulator >= SIM_DT && n < MAX_CATCHUP) {
-        renderer.simulate(step);
+        renderer.simulate(step, sequencer.playing);
         simAccumulator -= SIM_DT;
         n++;
       }
