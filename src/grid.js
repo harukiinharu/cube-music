@@ -63,6 +63,22 @@
     return col >= 0 && col < this.size && row >= 0 && row < this.size;
   };
 
+  /**
+   * 把 from 到 to 之间经过的格子全部设为 value（含 to，不含 from）。
+   * 快速拖动时指针事件之间会跳过若干格，用它补齐，保证涂抹连续不断。
+   */
+  Grid.prototype.paintLine = function (from, to, value) {
+    if (!from) { this.set(to.col, to.row, value); return; }
+    var dc = to.col - from.col;
+    var dr = to.row - from.row;
+    var steps = Math.max(Math.abs(dc), Math.abs(dr));
+    if (steps === 0) { this.set(to.col, to.row, value); return; }
+    for (var i = 1; i <= steps; i++) {
+      this.set(Math.round(from.col + dc * i / steps),
+               Math.round(from.row + dr * i / steps), value);
+    }
+  };
+
   Grid.prototype.onChange = function (fn) {
     this.listeners.push(fn);
   };

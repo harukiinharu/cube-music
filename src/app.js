@@ -42,27 +42,52 @@
   }
 
   // ── 交互 ────────────────────────────────────────────────
+  //
+  // 绘制必须与音频启动解耦：点下就立刻上色，不能等 AudioContext 就绪。
+  // 拖动时还要把两次事件之间跳过的格子补上，否则快速拖动会漏格。
   function bindInput() {
+    var rect = null;          // 缓存的画布矩形，避免每次 pointermove 都触发重排
+    var lastCell = null;
+
     canvas.addEventListener('pointerdown', function (e) {
-      boot().then(function () {
-        e.preventDefault();
-        canvas.setPointerCapture(e.pointerId);
-        var cell = cellAt(e);
-        if (!cell) return;
-        paintValue = grid.toggle(cell.col, cell.row);
-      });
+      e.preventDefault();
+      rect = canvas.getBoundingClientRect();
+      if (canvas.setPointerCapture) {
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+      }
+      var cell = cellAt(e, rect);
+      if (!cell) return;
+      paintValue = grid.toggle(cell.col, cell.row);   // 同步上色，不等音频
+      lastCell = cell;
+      boot();                                         // 音频后台启动
     });
 
     canvas.addEventListener('pointermove', function (e) {
       if (paintValue === null) return;
-      var cell = cellAt(e);
-      if (!cell) return;
-      grid.set(cell.col, cell.row, paintValue);
+      if (!rect) rect = canvas.getBoundingClientRect();
+
+      // 快速拖动时浏览器会把多个移动合并成一个事件，
+      // getCoalescedEvents() 能取回中间点，避免漏格。
+      var pts = (e.getCoalescedEvents && e.getCoalescedEvents().length)
+        ? e.getCoalescedEvents() : [e];
+
+      for (var i = 0; i < pts.length; i++) {
+        var cell = cellAt(pts[i], rect);
+        if (!cell) continue;
+        grid.paintLine(lastCell, cell, paintValue);
+        lastCell = cell;
+      }
     });
 
-    var endPaint = function () { paintValue = null; };
+    var endPaint = function () {
+      if (paintValue === null) return;
+      paintValue = null;
+      lastCell = null;
+    };
     canvas.addEventListener('pointerup', endPaint);
     canvas.addEventListener('pointercancel', endPaint);
+    // 指针在画布外抬起时也要收尾
+    global.addEventListener('pointerup', endPaint);
 
     // 空格清空（原程序 Keyboard.SPACE）
     global.addEventListener('keydown', function (e) {
@@ -72,12 +97,16 @@
       }
     });
 
+    // 布局变化后缓存的矩形会失效
+    global.addEventListener('resize', function () { rect = null; });
+    global.addEventListener('scroll', function () { rect = null; }, true);
+
     // 阻止画布上的右键菜单干扰
     canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   }
 
-  function cellAt(e) {
-    var r = canvas.getBoundingClientRect();
+  function cellAt(e, rect) {
+    var r = rect || canvas.getBoundingClientRect();
     var x = (e.clientX - r.left) / r.width;
     var y = (e.clientY - r.top) / r.height;
     var col = Math.floor(x * CFG.GRID);

@@ -5,10 +5,15 @@
  *   _bitmapDots     格子底图（黑底 + 柔化浅色方块）
  *   _bitmapStep     状态遮罩（BlendMode.SUBTRACT 减淡）
  *   _bitmapWave     波纹辉光（BlendMode.ADD + BlurFilter(12,12,2)）
- *   interval()      每帧的四邻域扩散场
+ *   interval()      每帧推进的二维波动场
  *
  * Canvas 2D 没有 subtract 合成模式，因此把「底图 + 减淡」两层按公式合并后直接上色：
  *   开 → 0xEEEEEE，关 → 0xEEEEEE - 0xBBBBBB = 0x333333
+ *
+ * 分辨率策略：
+ *   - 格子图层按设备分辨率渲染，保证方块边缘锐利（见 AGENTS.md §6）。
+ *   - 波纹图层固定 512（逻辑分辨率）即可 —— 它本来就要被大半径模糊，
+ *     再按设备分辨率渲染纯属浪费（面积 ×4）。
  */
 (function (global) {
   'use strict';
@@ -24,7 +29,7 @@
     this.canvas = canvas;
     this.grid = grid;
 
-    // 设备像素比。所有离屏图层都按设备分辨率渲染，主画布绘制时再缩回逻辑坐标，
+    // 设备像素比。格子图层按设备分辨率渲染，主画布绘制时再缩回逻辑坐标，
     // 这样位图与屏幕像素 1:1 对应，不会被浏览器二次重采样。
     this.scale = Math.min(global.devicePixelRatio || 1, 3);
     this.devSize = Math.round(SIZE * this.scale);
@@ -39,15 +44,16 @@
     this.patternLayer = makeCanvas(this.devSize, this.devSize);
     this.patternCtx = this.patternLayer.getContext('2d');
 
-    // ── 图层 3：波纹（设备分辨率）─────────────────────────
+    // ── 图层 3：波纹（逻辑分辨率即可）─────────────────────
     this.waveSmall = makeCanvas(N, N);
     this.waveSmallCtx = this.waveSmall.getContext('2d');
     this.waveImage = this.waveSmallCtx.createImageData(N, N);
 
-    this.waveBig = makeCanvas(this.devSize, this.devSize);
+    this.waveSize = CFG.WAVE_SIZE;
+    this.waveBig = makeCanvas(this.waveSize, this.waveSize);
     this.waveBigCtx = this.waveBig.getContext('2d');
 
-    // ── 扩散场（对应 _mapA / _mapB）────────────────────────
+    // ── 波动场（对应 _mapA / _mapB）────────────────────────
     this.mapA = create2DMap();
     this.mapB = create2DMap();
 
@@ -55,11 +61,7 @@
     this.stepIndex = 0;
 
     this.grid.onChange(function (grid, action) {
-      // 对应 PatternView.setStep：切换格子时向扩散场注入种子（-1）
-      if (action && action.type === 'set') {
-        this.mapB[action.row][action.col] = SEED_VALUE;
-      }
-      this.drawPattern();
+      this.applyChange(action);
     }.bind(this));
     this.drawPattern();
   }
@@ -67,9 +69,10 @@
   // ────────────────────────────────────────────────────────
   // 格子底图
   // ────────────────────────────────────────────────────────
+
+  /** 重绘整层。仅在启动、清空、以及开启模糊（局部重绘会不精确）时使用 */
   Renderer.prototype.drawPattern = function () {
     var c = this.patternCtx;
-    var S = this.scale;
     var D = this.devSize;
 
     // 离屏层不使用变换，尺寸与滤镜半径都用设备像素，避免 ctx.filter 的单位歧义
@@ -78,24 +81,62 @@
     c.fillStyle = CFG.COLORS.background;
     c.fillRect(0, 0, D, D);
 
-    var inset = CFG.CELL_INSET * S;
-    var side = (CELL - 2 * CFG.CELL_INSET) * S;
-    var radius = CFG.CELL_RADIUS * S;
-    var step = CELL * S;
-
-    c.filter = 'blur(' + (CFG.BLUR_CELL * S) + 'px)';
+    this._applyCellFilter(c);
     for (var col = 0; col < N; col++) {
-      for (var row = 0; row < N; row++) {
-        c.fillStyle = this.grid.get(col, row) ? CFG.COLORS.on : CFG.COLORS.off;
-        roundRect(c, col * step + inset, row * step + inset, side, side, radius);
-        c.fill();
-      }
+      for (var row = 0; row < N; row++) this._paintCell(c, col, row);
     }
     c.filter = 'none';
   };
 
+  /**
+   * 只重绘一个格子。
+   * 关闭模糊时，方块完全落在自己 32px 的格子里（inset > 0），
+   * 因此局部重绘是精确的 —— 拖动涂抹时把它从「重绘 256 个方块」降到「重绘 1 个」。
+   */
+  Renderer.prototype.drawCell = function (col, row) {
+    if (CFG.BLUR_CELL > 0) { this.drawPattern(); return; }   // 有模糊时局部重绘不精确
+    var c = this.patternCtx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.filter = 'none';
+    this._paintCell(c, col, row);
+  };
+
+  /** 响应网格变化：注入波场种子 + 更新对应像素 */
+  Renderer.prototype.applyChange = function (action) {
+    if (action && action.type === 'set') {
+      // 对应 PatternView.setStep：切换格子时向波动场注入种子（-1）
+      this.mapB[action.row][action.col] = SEED_VALUE;
+      this.drawCell(action.col, action.row);
+    } else {
+      this.drawPattern();          // clear 或未知动作 → 整层重绘
+    }
+  };
+
+  Renderer.prototype._applyCellFilter = function (c) {
+    c.filter = CFG.BLUR_CELL > 0
+      ? 'blur(' + (CFG.BLUR_CELL * this.scale) + 'px)'
+      : 'none';
+  };
+
+  Renderer.prototype._paintCell = function (c, col, row) {
+    var S = this.scale;
+    var step = CELL * S;
+    var x = col * step;
+    var y = row * step;
+    var inset = CFG.CELL_INSET * S;
+    var side = (CELL - 2 * CFG.CELL_INSET) * S;
+
+    // 先清成背景，再画方块（局部重绘时这一步保证旧状态被擦掉）
+    c.fillStyle = CFG.COLORS.background;
+    c.fillRect(x, y, step, step);
+
+    c.fillStyle = this.grid.get(col, row) ? CFG.COLORS.on : CFG.COLORS.off;
+    roundRect(c, x + inset, y + inset, side, side, CFG.CELL_RADIUS * S);
+    c.fill();
+  };
+
   // ────────────────────────────────────────────────────────
-  // 扩散场：对应 interval()
+  // 波动场：对应 interval()
   // ────────────────────────────────────────────────────────
   Renderer.prototype.stepDiffusion = function (stepIndex) {
     var next = (stepIndex + 1) % N;
@@ -110,7 +151,7 @@
 
     // 2) 二维波动方程（leapfrog 格式）+ 阻尼
     //    原文：v = (0.5 * Σ四邻域 - mapB[y][x]) * 0.85
-    //    这是一个阻尼波场，因此会产生向外扩散的涟漪环。
+    //    ×0.85 作用于整个括号；只乘 v_prev 会让场指数发散。
     var SUM = CFG.DIFFUSE_SUM;
     var DAMP = CFG.DIFFUSE_DAMP;
     var SCALE = CFG.WAVE_SCALE;
@@ -139,14 +180,13 @@
 
     this.waveSmallCtx.putImageData(this.waveImage, 0, 0);
 
-    // 放大到设备分辨率后模糊（对应 Bitmap.scaleX=32 + BlurFilter(12,12,2)）
+    // 最近邻放大到 512，再模糊（对应 Bitmap.scaleX=32 + BlurFilter(12,12,2)）
     var wb = this.waveBigCtx;
-    var D = this.devSize;
     wb.setTransform(1, 0, 0, 1, 0, 0);
-    wb.clearRect(0, 0, D, D);
+    wb.clearRect(0, 0, this.waveSize, this.waveSize);
     wb.imageSmoothingEnabled = false;
-    wb.filter = 'blur(' + (CFG.BLUR_WAVE * this.scale) + 'px)';
-    wb.drawImage(this.waveSmall, 0, 0, D, D);
+    wb.filter = CFG.BLUR_WAVE > 0 ? 'blur(' + CFG.BLUR_WAVE + 'px)' : 'none';
+    wb.drawImage(this.waveSmall, 0, 0, this.waveSize, this.waveSize);
     wb.filter = 'none';
   };
 
@@ -179,9 +219,11 @@
       ctx.fillRect(stepIndex * CELL, 0, CELL, SIZE);
     }
 
-    // ADD 辉光
+    // ADD 辉光。波纹层是逻辑分辨率的柔和渐变，放大时开插值让过渡更顺
     ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.waveBig, 0, 0, SIZE, SIZE);
+    ctx.imageSmoothingEnabled = false;
     ctx.globalCompositeOperation = 'source-over';
   };
 

@@ -91,7 +91,10 @@ body {
   transition: opacity 0.25s ease, visibility 0.25s ease;
 }
 
-.overlay.hidden { opacity: 0; visibility: hidden; }
+/* visibility 的过渡是离散步进，会一直保持 visible 到过渡结束，
+   这期间遮罩仍在吞指针事件（启动后 250ms 内的拖拽会全部失效）。
+   加 pointer-events: none 让它立刻失去命中，同时保留淡出动画。 */
+.overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
 .overlay-inner { text-align: center; }
 

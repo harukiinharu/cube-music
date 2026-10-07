@@ -89,6 +89,65 @@
   g.clear();
   check('clear 生效', g.count() === 0);
 
+  // ── 4.5 拖动涂抹补齐（paintLine）───────────────────────
+  // 契约：涂 (from, to] —— 含终点、不含起点（起点那格已经在上一轮画过了）
+  var gl = new TM.Grid();
+  gl.paintLine({ col: 0, row: 0 }, { col: 3, row: 0 }, true);
+  check('水平拖动补齐 (from,to]，起点不动',
+        gl.get(1, 0) && gl.get(2, 0) && gl.get(3, 0) && !gl.get(0, 0) &&
+        gl.count() === 3, 'count = ' + gl.count());
+
+  var gl2 = new TM.Grid();
+  gl2.paintLine({ col: 0, row: 0 }, { col: 3, row: 3 }, true);
+  check('对角拖动补齐，无断点',
+        gl2.get(1, 1) && gl2.get(2, 2) && gl2.get(3, 3) && gl2.count() === 3,
+        'count = ' + gl2.count());
+
+  var gl3 = new TM.Grid();
+  gl3.set(2, 2, true);
+  gl3.paintLine({ col: 2, row: 2 }, { col: 2, row: 2 }, true);
+  check('原地拖动不重复计数', gl3.count() === 1, 'count = ' + gl3.count());
+
+  var gl4 = new TM.Grid();
+  gl4.paintLine(null, { col: 5, row: 6 }, true);
+  check('无起点时只涂终点一格', gl4.get(5, 6) && gl4.count() === 1);
+
+  var gl5 = new TM.Grid();
+  gl5.paintLine({ col: 15, row: 15 }, { col: 15, row: 0 }, true);
+  check('垂直拖动补齐 15 步', gl5.count() === 15 && gl5.get(15, 0),
+        'count = ' + gl5.count());
+
+  // ── 4.6 局部重绘必须与整层重绘等价 ─────────────────────
+  function snapshot(r) {
+    var D = r.devSize;
+    return r.patternLayer.getContext('2d').getImageData(0, 0, D, D).data;
+  }
+  function samePixels(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i2 = 0; i2 < a.length; i2++) if (a[i2] !== b[i2]) return false;
+    return true;
+  }
+  var gp = new TM.Grid();
+  var rp = new TM.Renderer(document.getElementById('tcanvas'), gp);
+  gp.set(2, 3, true);
+  gp.set(5, 9, true);
+  var pxFull = snapshot(rp);
+  rp.drawPattern();                       // 同一状态整层重绘
+  check('整层重绘可重现（确定性）', samePixels(pxFull, snapshot(rp)));
+
+  gp.set(7, 1, true);                     // 走 drawCell 局部重绘路径
+  var pxIncr = snapshot(rp);
+  rp.drawPattern();
+  check('开启格子后：局部重绘 == 整层重绘', samePixels(pxIncr, snapshot(rp)));
+
+  gp.set(2, 3, false);                    // 关格子同样走局部重绘
+  var pxOff = snapshot(rp);
+  rp.drawPattern();
+  check('关闭格子后：局部重绘 == 整层重绘', samePixels(pxOff, snapshot(rp)));
+  check('局部重绘确实省掉了整层重绘',
+        CFG.BLUR_CELL === 0, 'BLUR_CELL = ' + CFG.BLUR_CELL +
+        '（>0 时会回退到整层重绘）');
+
   // ── 5. 扩散场 ──────────────────────────────────────────
   var grid2 = new TM.Grid();
   var rnd = new TM.Renderer(document.getElementById('tcanvas'), grid2);

@@ -36,7 +36,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须 44/44 全过，不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 53 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 视觉回归（渲染是否被改坏）：
 
@@ -60,7 +60,8 @@ src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
 test/selftest.html    44 项断言（含离线音频渲染）
-test/sharp.html       格子边缘锐度探针
+test/sharp.html       格子边缘锐度探针（读图层像素）
+test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
 test/wave.html        波场结构 ASCII 可视化
 test/diag.html        频率/节点诊断
@@ -113,15 +114,32 @@ test/diag.html        频率/节点诊断
 
 - **离屏图层按设备分辨率渲染**（`512 × min(devicePixelRatio, 3)`），主画布绘制时把坐标
   缩回 512 逻辑空间，使位图与屏幕像素 **1:1**。不要引入二次重采样 —— 曾经因此整片糊掉。
+  唯一例外是**波纹层**：它本来就要被大半径模糊，固定 512 就够，按设备分辨率渲染纯属浪费面积。
 - 离屏层**不使用 `setTransform`**，坐标直接乘 `scale`。这既避开 `ctx.filter` 半径的
   单位歧义，也保证像素对齐。
-- **模糊半径按设备像素给定**，不随 DPI 缩放。不要照搬原版的 `BlurFilter(3)`：
-  那是作用在 512 逻辑空间的，在 2x 屏上会变成 6 设备像素并填满 6px 的格子间隙。
+- **格子不模糊**（`BLUR_CELL = 0`），纯平直角。不要照搬原版的 `BlurFilter(3)`：
+  那是作用在 512 逻辑空间的，在 2x 屏上会变成 6 设备像素并填满 6px 的格子间隙，整体糊成一片。
+- **格子改动只重绘那一格**（`drawCell`），不要整层重绘。模糊关闭时方块完全落在自己
+  32px 的格子里，局部重绘精确且几乎零成本；整层重绘要付 256 个方块的钱。
+  `test/selftest.html` 有断言守住「局部重绘 == 整层重绘」这个不变式。
+  > 如果哪天要把 `BLUR_CELL` 调回 > 0，`drawCell` 会自动回退成整层重绘（模糊会溢出格子，
+  > 局部重绘不再精确）。此时必须接受拖动变卡，或者改用带 padding 的区域重绘。
 - 波场用**固定步长**（`app.js` 的 `SIM_DT = 1/60`）推进，与显示刷新率解耦，
   否则 60Hz 与 120Hz 屏上涟漪速度不一致。
 - Canvas 2D 没有 `subtract` 合成模式，所以「底图 + 减淡」两层按公式预计算颜色后直接上色。
 
-## 7. 已知的有意偏差（相对原作）
+## 7. 输入约定
+
+- **绘制与音频启动解耦**：`pointerdown` 必须**同步**上色，不能等 `AudioContext` 就绪。
+  音频在后台异步启动。
+- 拖动时用 `Grid.prototype.paintLine(from, to, value)` 补齐两次事件之间跳过的格子。
+  契约是**涂 `(from, to]`** —— 含终点、不含起点（起点那格上一轮已经画过）。
+- 用 `e.getCoalescedEvents()` 取回被浏览器合并掉的中间移动点，否则快速拖动会漏格。
+- 缓存的画布矩形（`getBoundingClientRect`）在 `resize` / `scroll` 后必须失效重取。
+- `.overlay.hidden` 必须带 `pointer-events: none`：`visibility` 的过渡是离散步进，
+  会一直保持 `visible` 到过渡结束，这期间遮罩仍在吞指针事件（启动后 250ms 内拖拽全失效）。
+
+## 8. 已知的有意偏差（相对原作）
 
 1. **未加限幅器。** 原作多声部直接相加后由驱动钳位；这里同样直接相加，由 `destination` 钳位。
    不要加 `WaveShaper` 软限幅：其 `oversample` 会引入明显振铃（实测主频不变但混入高频）。
@@ -129,9 +147,9 @@ test/diag.html        频率/节点诊断
    这里改成「按下时决定目标值，拖动时统一写入」。
 3. **播放列高亮。** 原作没有显式播放头（靠波纹提示位置）。这里加了一条极淡的列高亮作为辅助，
    可在控件区关闭。
-4. **格子柔化半径收紧**（见 §6），用于修正高 DPI 下的糊化。
+4. **方块不做模糊**（见 §6），纯平直角，用于修正高 DPI 下的糊化与拖动卡顿。
 
-## 8. 提交约定
+## 9. 提交约定
 
 - **作者身份固定为** `haruki <harukiinharu@gmail.com>`（已写入本仓库的 local config）。
   提交前确认 `git config user.name` / `user.email` 正确，**不要出现其他身份**。
@@ -141,7 +159,7 @@ test/diag.html        频率/节点诊断
   （探针读数、离线渲染测量值、测试通过数），不要只说"看起来好了"。
 - 每次提交前跑通 §2 的回归。
 
-## 9. 调试技巧
+## 10. 调试技巧
 
 - 验证画布视觉问题**不要**在合成结果上做灰度统计 —— 辉光梯度会污染测量。
   应直接读对应图层的 `getImageData`（见 `test/sharp.html`）。
