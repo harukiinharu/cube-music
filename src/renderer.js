@@ -58,6 +58,7 @@
     this.mapB = create2DMap();
 
     this.showPlayhead = true;
+    this.showWave = true;         // 涟漪辉光开关
     this.stepIndex = 0;
 
     this.grid.onChange(function (grid, action) {
@@ -104,12 +105,30 @@
   /** 响应网格变化：注入波场种子 + 更新对应像素 */
   Renderer.prototype.applyChange = function (action) {
     if (action && action.type === 'set') {
-      // 对应 PatternView.setStep：切换格子时向波动场注入种子（-1）
-      this.mapB[action.row][action.col] = SEED_VALUE;
+      // 对应 PatternView.setStep：切换格子时向波动场注入种子（-1）。
+      // 涟漪关闭时不注入，否则重新打开会冒出一堆积压的种子。
+      if (this.showWave) this.mapB[action.row][action.col] = SEED_VALUE;
       this.drawCell(action.col, action.row);
     } else {
       this.drawPattern();          // clear 或未知动作 → 整层重绘
     }
+  };
+
+  /**
+   * 开关涟漪辉光。
+   * 关闭时把波动场清零 —— 否则场会冻结在原地，重新打开时冒出一圈旧涟漪。
+   */
+  Renderer.prototype.setWaveEnabled = function (on) {
+    this.showWave = !!on;
+    if (this.showWave) return;
+
+    for (var i = 0; i < N; i++) {
+      this.mapA[i].fill(0);
+      this.mapB[i].fill(0);
+    }
+    var wb = this.waveBigCtx;
+    wb.setTransform(1, 0, 0, 1, 0, 0);
+    wb.clearRect(0, 0, this.waveSize, this.waveSize);
   };
 
   Renderer.prototype._applyCellFilter = function (c) {
@@ -220,11 +239,13 @@
     }
 
     // ADD 辉光。波纹层是逻辑分辨率的柔和渐变，放大时开插值让过渡更顺
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.waveBig, 0, 0, SIZE, SIZE);
-    ctx.imageSmoothingEnabled = false;
-    ctx.globalCompositeOperation = 'source-over';
+    if (this.showWave) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.waveBig, 0, 0, SIZE, SIZE);
+      ctx.imageSmoothingEnabled = false;
+      ctx.globalCompositeOperation = 'source-over';
+    }
   };
 
   /** 推进 + 合成（一次性调用，供测试与简单场景使用） */

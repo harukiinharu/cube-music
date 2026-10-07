@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>interaction</title></head>
+<body>
+<pre id="out">running…</pre>
+<iframe id="app" src="../index.html?debug=1" width="880" height="1100" style="border:0"></iframe>
+<script>
+/*
+ * Cube Music 页面级交互自检
+ *
+ * 断言全部建立在模型状态上（通过 index.html?debug=1 暴露的 __cubeMusicDebug），
+ * 不去采样渲染后的像素 —— 无头环境里 rAF 与定时器的推进节奏不一致，
+ * 像素采样必然不稳定。渲染管线单独用一次显式 composite() 验证。
+ */
+var lines = [], pass = 0, fail = 0, done = false;
+
+function check(name, ok, detail) {
+  (ok ? pass++ : fail++);
+  lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   ' + detail : ''));
+}
+function info(name, detail) { lines.push('INFO  ' + name + '   ' + detail); }
+
+function report() {
+  if (done) return;
+  done = true;
+  lines.unshift('Cube Music 交互自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
+  lines.unshift('');
+  document.getElementById('out').textContent = lines.join('\n');
+  document.title = 'DONE ' + pass + '/' + (pass + fail);
+}
+
+function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+async function waitFor(fn, timeoutMs, label) {
+  var limit = timeoutMs || 2000, waited = 0;
+  while (waited < limit) {
+    try { if (fn()) return true; } catch (e) { /* 忽略 */ }
+    await wait(40);
+    waited += 40;
+  }
+  if (label) info('轮询超时', label);
+  return false;
+}
+
+window.addEventListener('error', function (e) {
+  lines.push('JS ERROR: ' + e.message); fail++; report();
+});
+window.addEventListener('unhandledrejection', function (e) {
+  lines.push('PROMISE REJECT: ' + (e.reason && e.reason.message || e.reason));
+  fail++; report();
+});
+setTimeout(function () { lines.push('WATCHDOG: 12s 未完成'); fail++; report(); }, 12000);
+
+var frame = document.getElementById('app');
+
+frame.addEventListener('load', function () {
+  var win = frame.contentWindow, doc = frame.contentDocument;
+  if (!doc) { check('能访问 iframe 文档', false, 'contentDocument 为空'); report(); return; }
+  win.addEventListener('error', function (e) {
+    lines.push('IFRAME ERROR: ' + e.message + ' @' + e.lineno);
+  });
+  run(win, doc).catch(function (e) {
+    check('交互自检未抛异常', false, String(e && e.message || e));
+    report();
+  });
+});
+
+async function run(win, doc) {
+  await waitFor(function () { return !!win.__cubeMusicDebug; }, 2000);
+
+  var dbg = win.__cubeMusicDebug;
+  check('debug 句柄可用（?debug=1）', !!dbg,
+        dbg ? 'grid/audio/sequencer/renderer 均暴露' : '未注入');
+  if (!dbg) { report(); return; }
+
+  // ── 文案 ───────────────────────────────────────────────
+  check('页面标题 = Cube Music', doc.title === 'Cube Music', '实际 ' + doc.title);
+  var h1 = doc.querySelector('.head h1');
+  check('主标题 = Cube Music', h1 && h1.textContent.trim() === 'Cube Music',
+        h1 ? h1.textContent.trim() : '缺失');
+  var sub = doc.querySelector('.head .sub');
+  check('标注灵感来源 warma', sub && /warma/.test(sub.textContent),
+        sub ? sub.textContent.trim() : '缺失');
+
+  // ── 涟漪开关 ───────────────────────────────────────────
+  var wave = doc.getElementById('btn-wave');
+  check('存在涟漪开关按钮', !!wave);
+  check('初始为开', dbg.renderer.showWave === true &&
+        wave.getAttribute('aria-pressed') === 'true' && /开/.test(wave.textContent),
+        wave.textContent.trim());
+  wave.click();
+  check('点击后为关', dbg.renderer.showWave === false &&
+        wave.getAttribute('aria-pressed') === 'false' && /关/.test(wave.textContent),
+        wave.textContent.trim());
+  wave.click();
+  check('再点恢复为开', dbg.renderer.showWave === true &&
+        /开/.test(wave.textContent), wave.textContent.trim());
+
+  // ── 音频启动 ───────────────────────────────────────────
+  var play = doc.getElementById('btn-toggle');
+  play.click();
+  // 注意：不能等 audio.ready —— 它在 buildGraph 里就置位了，
+  // 早于 audio.start() 的 then 回调执行 sequencer.start()。
+  var started = await waitFor(function () { return dbg.sequencer.playing; }, 3000,
+                              '等待进入播放状态');
+  info('音频就绪', dbg.audio.ready + '，播放中 = ' + dbg.sequencer.playing);
+  check('启动后进入播放状态', started && dbg.sequencer.playing === true,
+        'playing = ' + dbg.sequencer.playing);
+  check('按钮文案与状态一致', play.textContent.trim() === '暂停',
+        play.textContent.trim());
+
+  // ── 空格 = 暂停 / 继续 ─────────────────────────────────
+  function pressSpace() {
+    win.dispatchEvent(new win.KeyboardEvent('keydown',
+      { code: 'Space', key: ' ', bubbles: true }));
+  }
+
+  pressSpace();
+  await waitFor(function () { return dbg.sequencer.playing === false; }, 800);
+  check('空格：暂停', dbg.sequencer.playing === false,
+        'playing = ' + dbg.sequencer.playing);
+  check('暂停后按钮变为「播放」', play.textContent.trim() === '播放',
+        play.textContent.trim());
+
+  pressSpace();
+  await waitFor(function () { return dbg.sequencer.playing === true; }, 800);
+  check('空格：继续', dbg.sequencer.playing === true,
+        'playing = ' + dbg.sequencer.playing);
+
+  // ── 点按 / 空格 / 清空 对网格的影响 ────────────────────
+  var canvas = doc.getElementById('matrix');
+  var rect = canvas.getBoundingClientRect();
+
+  function tap(pointerId) {
+    canvas.dispatchEvent(new win.PointerEvent('pointerdown', {
+      clientX: rect.left + rect.width / 32,
+      clientY: rect.top + rect.height / 32,
+      bubbles: true, pointerId: pointerId, isPrimary: true
+    }));
+  }
+
+  check('初始网格为空', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  tap(1);
+  await waitFor(function () { return dbg.grid.get(0, 0) === true; }, 800);
+  check('点按点亮 cell(0,0)', dbg.grid.get(0, 0) === true);
+  check('只点亮一格', dbg.grid.count() === 1, 'count = ' + dbg.grid.count());
+
+  pressSpace();
+  await wait(250);
+  check('空格不清空网格', dbg.grid.count() === 1, 'count = ' + dbg.grid.count());
+  check('空格只切播放，不影响格子', dbg.grid.get(0, 0) === true);
+
+  pressSpace();     // 恢复播放状态
+
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  check('清空按钮仍然清空网格', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  // ── 涟漪关闭时点按仍然可用 ─────────────────────────────
+  wave.click();
+  check('涟漪已关闭', dbg.renderer.showWave === false);
+  tap(2);
+  await waitFor(function () { return dbg.grid.get(0, 0) === true; }, 800);
+  check('涟漪关闭时仍能正常点格子', dbg.grid.get(0, 0) === true);
+
+  // ── 渲染管线（显式合成一帧，不依赖 rAF 节奏）───────────
+  var ctx = canvas.getContext('2d');
+  var D = canvas.width;
+  dbg.renderer.showPlayhead = false;
+  dbg.renderer.composite(0);
+  var px = Math.round(0.5 * D / 16), py = Math.round(0.5 * D / 16);
+  var lit = ctx.getImageData(px, py, 1, 1).data[0];
+  check('合成后画面确实点亮（含渲染链路）', lit > 200, 'cell(0,0) 亮度 ' + lit);
+
+  report();
+}
+</script>
+</body>
+</html>

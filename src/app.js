@@ -26,6 +26,19 @@
 
     bindInput();
     bindControls();
+
+    // 仅在 ?debug=1 时暴露内部句柄，供自动化测试直接读模型状态。
+    // 测试不应依赖渲染后的像素 —— 无头环境里 rAF 与定时器的推进节奏不一致，
+    // 像素采样必然不稳定。生产环境不带该参数时不会挂任何全局变量。
+    if (/[?&]debug=1/.test(global.location.search)) {
+      global.__cubeMusicDebug = {
+        grid: grid,
+        audio: audio,
+        sequencer: sequencer,
+        renderer: renderer
+      };
+    }
+
     requestAnimationFrame(loop);
   }
 
@@ -37,8 +50,41 @@
       sequencer.setTempo(readTempo());
       sequencer.start();
       document.getElementById('overlay').classList.add('hidden');
-      document.body.classList.add('running');
+      syncPlayButton();
+    }).catch(function (err) {
+      // 启动失败（例如被自动播放策略拦下）时允许下次手势重试，
+      // 同时避免抛出未处理的 Promise 拒绝
+      booted = false;
+      if (global.console) global.console.warn('音频启动失败：', err);
     });
+  }
+
+  // ── 播放控制 ────────────────────────────────────────────
+  // 按钮与空格键共用这一对函数，状态以 sequencer.playing 为准，
+  // 避免两处各自维护一个布尔量而不同步。
+  function togglePlayback() {
+    if (!booted) { boot().then(syncPlayButton); return; }
+    if (sequencer.playing) sequencer.stop(); else sequencer.start();
+    syncPlayButton();
+  }
+
+  function syncPlayButton() {
+    var btn = document.getElementById('btn-toggle');
+    if (btn) btn.textContent = sequencer.playing ? '暂停' : '播放';
+  }
+
+  // ── 涟漪开关 ────────────────────────────────────────────
+  function setWave(on) {
+    renderer.setWaveEnabled(on);
+    var btn = document.getElementById('btn-wave');
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.textContent = on ? '涟漪 开' : '涟漪 关';
+    }
+  }
+
+  function toggleWave() {
+    setWave(!renderer.showWave);
   }
 
   // ── 交互 ────────────────────────────────────────────────
@@ -89,11 +135,11 @@
     // 指针在画布外抬起时也要收尾
     global.addEventListener('pointerup', endPaint);
 
-    // 空格清空（原程序 Keyboard.SPACE）
+    // 空格 = 暂停 / 继续（清空不再占用快捷键）
     global.addEventListener('keydown', function (e) {
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
-        grid.clear();
+        togglePlayback();
       }
     });
 
@@ -121,21 +167,15 @@
     overlay.addEventListener('click', function () { boot(); });
 
     document.getElementById('btn-toggle').addEventListener('click', function () {
-      boot().then(function () {
-        if (sequencer.playing) {
-          sequencer.stop();
-          this.textContent = '播放';
-          document.body.classList.remove('running');
-        } else {
-          sequencer.start();
-          this.textContent = '暂停';
-          document.body.classList.add('running');
-        }
-      }.bind(this));
+      togglePlayback();
     });
 
     document.getElementById('btn-clear').addEventListener('click', function () {
       grid.clear();
+    });
+
+    document.getElementById('btn-wave').addEventListener('click', function () {
+      toggleWave();
     });
 
     var tempo = document.getElementById('tempo');
@@ -184,14 +224,19 @@
     var step = sequencer.audibleStep();
     if (step === null || step === undefined) step = renderer.stepIndex;
 
-    simAccumulator += dt;
-    var n = 0;
-    while (simAccumulator >= SIM_DT && n < MAX_CATCHUP) {
-      renderer.simulate(step);
-      simAccumulator -= SIM_DT;
-      n++;
+    // 涟漪关掉时整段跳过：省掉每帧的波动场推进
+    if (renderer.showWave) {
+      simAccumulator += dt;
+      var n = 0;
+      while (simAccumulator >= SIM_DT && n < MAX_CATCHUP) {
+        renderer.simulate(step);
+        simAccumulator -= SIM_DT;
+        n++;
+      }
+      if (n >= MAX_CATCHUP) simAccumulator = 0;
+    } else {
+      simAccumulator = 0;
     }
-    if (n >= MAX_CATCHUP) simAccumulator = 0;
 
     renderer.composite(step);
   }

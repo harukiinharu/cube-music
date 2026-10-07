@@ -6,8 +6,14 @@
 
 ## 1. 这是什么
 
-`Cube-Music.exe` 尾部内嵌的 Flash 程序（**Hobnox AudioTool / ToneMatrix**，2009）的 Web 重构版。
-原程序已通过自研 AVM2 反汇编器完整逆向，本仓库是按逆向结论 1:1 重写的实现。
+**Cube Music** —— 一个 16×16 五声音阶音序器（灵感来自 warma）。
+
+它同时是对 `Cube-Music.exe` 尾部内嵌 Flash 程序（**Hobnox AudioTool / ToneMatrix**，2009）
+的 Web 重构：原程序已通过自研 AVM2 反汇编器完整逆向，本仓库按逆向结论 1:1 重写，
+并在其上做了若干产品化调整（见 §8）。
+
+用户可见的品牌名是 **Cube Music**；代码注释与 §5 里的常量仍以原程序类名标注来源，
+这是刻意保留的溯源信息，不要一并改掉。
 
 **技术约束（请勿引入例外）**
 
@@ -36,7 +42,19 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 53 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 59 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+
+页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
+
+```bash
+"$CHROME" --headless=new --disable-gpu --no-sandbox --allow-file-access-from-files \
+  --autoplay-policy=no-user-gesture-required --virtual-time-budget=25000 \
+  --user-data-dir=/tmp/tm-ui \
+  --dump-dom "file://$PWD/test/interaction.html"
+```
+
+结果在 `<pre id="out">` 里（当前 22 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 视觉回归（渲染是否被改坏）：
 
@@ -59,13 +77,17 @@ src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
-test/selftest.html    44 项断言（含离线音频渲染）
+test/selftest.html    59 项断言（含离线音频渲染）
+test/interaction.html 22 项页面级交互断言（iframe + ?debug=1）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
 test/wave.html        波场结构 ASCII 可视化
 test/diag.html        频率/节点诊断
 ```
+
+`index.html?debug=1` 会在 `window.__cubeMusicDebug` 上暴露 `grid / audio / sequencer / renderer`。
+**不带该参数时不会挂任何全局变量** —— 保持生产环境干净，改动时别把这条去掉。
 
 ## 4. 核心架构：单一时基
 
@@ -139,6 +161,20 @@ test/diag.html        频率/节点诊断
 - `.overlay.hidden` 必须带 `pointer-events: none`：`visibility` 的过渡是离散步进，
   会一直保持 `visible` 到过渡结束，这期间遮罩仍在吞指针事件（启动后 250ms 内拖拽全失效）。
 
+**快捷键与开关（当前约定）**
+
+| 操作 | 绑定 |
+|---|---|
+| 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
+| 点击 / 拖动画布 | 开关方格 |
+| `#btn-clear` 按钮 | 清空 |
+| `#btn-wave` 按钮 | 开关涟漪辉光 |
+
+- 播放状态以 `sequencer.playing` 为唯一真相，按钮文案由 `syncPlayButton()` 派生，
+  不要在事件处理里各自维护一个布尔量。
+- 涟漪状态以 `renderer.showWave` 为唯一真相，`setWave()` 负责同步按钮的
+  `aria-pressed` 与文案。关掉涟漪会同时清空波动场并停掉每帧推进（见 §6）。
+
 ## 8. 已知的有意偏差（相对原作）
 
 1. **未加限幅器。** 原作多声部直接相加后由驱动钳位；这里同样直接相加，由 `destination` 钳位。
@@ -148,6 +184,10 @@ test/diag.html        频率/节点诊断
 3. **播放列高亮。** 原作没有显式播放头（靠波纹提示位置）。这里加了一条极淡的列高亮作为辅助，
    可在控件区关闭。
 4. **方块不做模糊**（见 §6），纯平直角，用于修正高 DPI 下的糊化与拖动卡顿。
+5. **品牌改为 Cube Music**，页面上标注「灵感来自 warma」。原作名为 Hobnox AudioTool / ToneMatrix。
+6. **空格键改为暂停 / 继续**，清空不再占用快捷键（原作空格是清空）。
+   清空只剩按钮入口 —— 这是刻意去掉的，别"顺手加回来"。
+7. **涟漪辉光可开关**（`#btn-wave`）。原作没有这个开关，辉光始终开启。
 
 ## 9. 提交约定
 
@@ -163,8 +203,19 @@ test/diag.html        频率/节点诊断
 
 - 验证画布视觉问题**不要**在合成结果上做灰度统计 —— 辉光梯度会污染测量。
   应直接读对应图层的 `getImageData`（见 `test/sharp.html`）。
+- **页面级测试不要断言渲染后的像素**。无头环境里 rAF 与 `setTimeout` 的推进节奏不一致：
+  定时器可能跑得飞快而合成帧还没发生，固定等待与轮询都会拿到过期画面。
+  用 `index.html?debug=1` 暴露的 `__cubeMusicDebug` 直接读模型状态；
+  需要验证渲染链路时**显式调一次 `renderer.composite()`** 再读像素。
+- **轮询 `waitFor` 会误判**：拿初始 HTML 文案当目标值时（如按钮默认就写着「暂停」），
+  条件立刻成立，等于没等。要等**状态量**（`sequencer.playing`），不要等派生的文案。
+  同理 `audio.ready` 在 `buildGraph` 里就置位了，早于 `sequencer.start()`，不能拿它当"启动完成"。
+- **量 canvas 性能必须强制同步**：`getImageData(0,0,1,1)`，且要同步**对应的那个 canvas**
+  （只 flush 主画布量不到离屏图层的工作）。否则 `performance.now()` 只统计到 JS 提交时间，
+  会得到 0.27ms 这类假数据。
 - 无头环境下 **`OfflineAudioContext` 只渲染一次**，第二次 `startRendering()` 不会推进
   （会卡住）。需要多个渲染场景时，合并到一次渲染里，或用单元测试覆盖。
 - 截图核对：`--headless=new --force-device-scale-factor=2 --screenshot=...`，
   再用 Pillow 做像素分析。
+- macOS **没有 `timeout` 命令**，用了会 `exit 127` 且无输出，别误判成"页面挂了"。
 - 改速度相关的逻辑时，重点验证 60 / 90 / 120 / 180 / 240 BPM 五个点。

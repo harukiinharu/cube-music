@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>ToneMatrix Web 自检</title>
+<title>Cube Music 自检</title>
 </head>
 <body>
 <canvas id="tcanvas" width="16" height="16"></canvas>
@@ -28,7 +28,7 @@
   function report() {
     if (done) return;
     done = true;
-    lines.unshift('ToneMatrix Web 自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
+    lines.unshift('Cube Music 自检 —— ' + pass + ' 通过 / ' + fail + ' 失败');
     lines.unshift('');
     document.getElementById('results').textContent = lines.join('\n');
     document.title = 'DONE ' + pass + '/' + (pass + fail);
@@ -172,6 +172,49 @@
   for (var a = 0; a < 16; a++) for (var b = 0; b < 16; b++)
     maxAbs = Math.max(maxAbs, Math.abs(rnd.mapA[a][b]));
   check('无输入时扩散场衰减', maxAbs < 0.01, 'max|mapA| = ' + maxAbs.toFixed(6));
+
+  // ── 5.2 涟漪开关 ───────────────────────────────────────
+  function maxLum(r) {
+    var D = r.devSize;
+    var d = r.ctx.getImageData(0, 0, D, D).data;
+    var m = 0;
+    for (var i = 0; i < d.length; i += 4) if (d[i] > m) m = d[i];
+    return m;
+  }
+
+  var gw = new TM.Grid();
+  var rw = new TM.Renderer(document.getElementById('tcanvas'), gw);
+  rw.showPlayhead = false;
+  gw.set(3, 3, true);                       // 同时经 applyChange 注入种子
+  for (var wi = 0; wi < 30; wi++) rw.stepDiffusion(2);   // next=3，持续泵这一列
+
+  var fieldMax = 0;
+  for (var fy = 0; fy < 16; fy++) {
+    for (var fx = 0; fx < 16; fx++) fieldMax = Math.max(fieldMax, Math.abs(rw.mapA[fy][fx]));
+  }
+  check('涟漪开启时波场有能量', fieldMax > 0.1, 'max|mapA| = ' + fieldMax.toFixed(3));
+
+  rw.composite(2);
+  var lumOn = maxLum(rw);
+  check('开启涟漪时辉光把像素推过 #EEEEEE(238)', lumOn > 240, 'max = ' + lumOn);
+
+  rw.setWaveEnabled(false);
+  check('关闭后 showWave = false', rw.showWave === false);
+
+  var zeroed = true;
+  for (var zy = 0; zy < 16; zy++) {
+    for (var zx = 0; zx < 16; zx++) {
+      if (rw.mapA[zy][zx] !== 0 || rw.mapB[zy][zx] !== 0) zeroed = false;
+    }
+  }
+  check('关闭涟漪会清空波场（避免重新打开冒出冻结的旧涟漪）', zeroed);
+
+  gw.set(5, 5, true);
+  check('关闭后点格子不再注入种子', rw.mapB[5][5] === 0, 'mapB[5][5] = ' + rw.mapB[5][5]);
+
+  rw.composite(2);
+  var lumOff = maxLum(rw);
+  check('关闭涟漪后画面最亮不超过 #EEEEEE(238)', lumOff <= 238, 'max = ' + lumOff);
 
   // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
   function fakeAudio(latency) {
