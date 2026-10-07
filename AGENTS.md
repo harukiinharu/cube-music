@@ -42,7 +42,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 68 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 63 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -53,7 +53,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 37 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 40 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 视觉回归（渲染是否被改坏）：
@@ -77,8 +77,8 @@ src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
-test/selftest.html    68 项断言（含离线音频渲染、波场稳定性）
-test/interaction.html 37 项页面级交互断言（iframe + ?debug=1）
+test/selftest.html    63 项断言（含离线音频渲染、波场稳定性）
+test/interaction.html 40 项页面级交互断言（iframe + ?debug=1）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -172,17 +172,20 @@ test/diag.html        频率/节点诊断
 | 操作 | 绑定 |
 |---|---|
 | 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
-| 点击 / 拖动画布 | 开关方格 |
-| **右键方格** | **试听该格的音**（`audition()`）—— 只发声 + 打一圈涟漪，**不改图案** |
+| 左键点击 / 拖动 | 开关方格 |
+| **右键方格** | **试听该格的音**（`audition()`）—— **只发声**，不改图案、不给该格任何视觉变化 |
 | `#btn-toggle` | 播放 / 暂停 |
 | `#btn-clear` | 清空 |
 | `#btn-wave` | 开关涟漪辉光 |
 | `#btn-playhead` | 开关播放列高亮 |
 
+- **`pointerdown` 必须判断 `e.button !== 0` 就返回。** 浏览器在右键时会**先**派发
+  `pointerdown(button=2)` 再派发 `contextmenu`；不判断按键的话，右键会先把格子翻转，
+  然后才发出试听的声音。任何"只有左键才应该生效"的指针处理都要加这道闸。
 - 试听的 `contextmenu` 监听挂在 `.canvas-wrap` 上而不是 `canvas` 上：启动前遮罩层
   盖在 canvas 上方，只监听 canvas 会让第一次右键落到遮罩上并弹出浏览器菜单。
-- 试听复用 `renderer.pulse(col, row)` 做视觉反馈 —— 它与 `setStep` 的种子注入等价，
-  但**只注入一次**。反复注入同一格会让波场指数发散（见 §6）。
+- 试听**不要**加视觉反馈。曾用 `renderer.pulse()` 在该格打一圈涟漪，
+  实际观感是那个暗格"变亮了"，用户会以为右键改动了格子的黑/白状态。
 
 - 播放状态以 `sequencer.playing` 为唯一真相，按钮文案由 `syncPlayButton()` 派生，
   不要在事件处理里各自维护一个布尔量。
@@ -206,7 +209,7 @@ test/diag.html        频率/节点诊断
    清空只剩按钮入口 —— 这是刻意去掉的，别"顺手加回来"。
 7. **涟漪辉光可开关**（`#btn-wave`）。原作没有这个开关，辉光始终开启。
 8. **右键试听**。原作没有这个交互。右键某一格会单独播一次该格的音（走同一条
-   发声链路，含延迟），并在该格打一圈涟漪作为视觉反馈，但不改动图案。
+   发声链路，含延迟），**不改动图案，也不给该格任何视觉变化**。
 
 ## 9. 提交约定
 
@@ -243,4 +246,9 @@ test/diag.html        频率/节点诊断
 - **探针本身也会写错**，跑之前先自检两件事：索引对不对（`stepDiffusion(n)` 播种的是
   `n+1` 列，不是 `n` 列）、单位/取整有没有吃掉信号（`Math.round(0.85)` = `1`，
   会让你以为场是空的；要用 `Math.round(v * 1000) / 1000`）。
-- 改速度相关的逻辑时，重点验证 60 / 90 / 120 / 180 / 240 BPM 五个点。
+- **模拟用户操作要按真实事件序列派发**。右键在浏览器里是
+  `pointerdown(button=2)` **加** `contextmenu` 两个事件；只派发后者测不出
+  "右键把格子翻转了" 这类 bug（曾经就这么漏掉了）。拖动同理，是
+  `pointerdown` + 若干 `pointermove`。
+- **写完回归测试，把修复撤掉再跑一遍**，确认它确实会失败。
+  不会失败的回归测试等于没写。撤掉后失败的条目数应与新增断言数吻合。

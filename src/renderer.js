@@ -115,17 +115,6 @@
   };
 
   /**
-   * 在指定格子向波动场注入一次种子，产生一圈从该格扩散出去的涟漪。
-   * 用于右键试听这类「一次性反馈」——与 setStep 的种子注入等价，但不改动图案。
-   * 注意只注入一次：反复注入同一格会让波场指数发散（见 §6 / AGENTS.md）。
-   */
-  Renderer.prototype.pulse = function (col, row) {
-    if (!this.showWave || !this.grid.inBounds(col, row)) return false;
-    this.mapB[row][col] = SEED_VALUE;
-    return true;
-  };
-
-  /**
    * 开关涟漪辉光。
    * 关闭时把波动场清零 —— 否则场会冻结在原地，重新打开时冒出一圈旧涟漪。
    */

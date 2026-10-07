@@ -99,6 +99,10 @@
     var lastCell = null;
 
     canvas.addEventListener('pointerdown', function (e) {
+      // 只响应主键（左键）。浏览器在右键时会**先**派发 pointerdown(button=2)
+      // 再派发 contextmenu；不判断按键的话右键会先把格子翻转，
+      // 然后才发出试听的声音 —— 试听绝不能改动图案。
+      if (e.button !== 0) return;
       e.preventDefault();
       rect = canvas.getBoundingClientRect();
       if (canvas.setPointerCapture) {
@@ -163,12 +167,12 @@
   }
 
   /**
-   * 试听某一格对应的音。只发声 + 在该格打一圈涟漪，不修改图案。
+   * 试听某一格对应的音：**只发声**，不改动图案，也不给该格任何视觉变化
+   * —— 右键不应该让格子的黑/白状态看起来变了。
    * 音频未启动时先启动（boot 内部已 catch，始终会 resolve）。
    */
   function audition(cell) {
     var note = CFG.NOTES[cell.row];
-    renderer.pulse(cell.col, cell.row);   // 同步给出视觉反馈
     boot().then(function () {
       audio.synthNote(note, 0);
     });

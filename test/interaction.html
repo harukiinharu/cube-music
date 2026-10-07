@@ -180,7 +180,7 @@ async function run(win, doc) {
   await waitFor(function () { return dbg.grid.count() === 0; }, 800);
   check('清空按钮仍然清空网格', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
 
-  // ── 右键试听（只发声，不改图案）────────────────────────
+  // ── 右键试听（只发声，不改动图案、不改格子外观）────────
   var played = [];
   var origSynth = dbg.audio.synthNote;
   dbg.audio.synthNote = function (note, when) {
@@ -188,27 +188,44 @@ async function run(win, doc) {
     return origSynth.call(this, note, when);
   };
 
-  function rightClick(col, row) {
-    canvas.dispatchEvent(new win.MouseEvent('contextmenu', {
+  function at(col, row) {
+    return {
       clientX: rect.left + rect.width * ((col + 0.5) / 16),
-      clientY: rect.top + rect.height * ((row + 0.5) / 16),
-      bubbles: true, cancelable: true
+      clientY: rect.top + rect.height * ((row + 0.5) / 16)
+    };
+  }
+
+  /**
+   * 模拟真实右键：浏览器会**先**派发 pointerdown(button=2)，
+   * 再派发 contextmenu。只派发 contextmenu 是测不出问题的
+   * （早期版本就是漏了这个才让右键把格子翻转了）。
+   */
+  function rightClick(col, row) {
+    var p = at(col, row);
+    canvas.dispatchEvent(new win.PointerEvent('pointerdown', {
+      clientX: p.clientX, clientY: p.clientY,
+      bubbles: true, cancelable: true, pointerId: 9, isPrimary: true, button: 2, buttons: 2
+    }));
+    canvas.dispatchEvent(new win.MouseEvent('contextmenu', {
+      clientX: p.clientX, clientY: p.clientY, bubbles: true, cancelable: true
     }));
   }
 
   check('试听前网格为空', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
 
   rightClick(2, 5);
-  check('右键在该格注入一圈涟漪', dbg.renderer.mapB[5][2] === -1,
-        'mapB[5][2] = ' + dbg.renderer.mapB[5][2]);
-
   var gotSound = await waitFor(function () { return played.length > 0; }, 1500,
                                '等待右键试听发声');
   check('右键触发发声', gotSound && played.length === 1, '调用 ' + played.length + ' 次');
   check('音高 = NOTES[行]（第 5 行 → 84）',
         played[0] === win.TM.CONFIG.NOTES[5],
         'note = ' + played[0] + '，期望 ' + win.TM.CONFIG.NOTES[5]);
+
+  // 这两条是本轮的核心：右键绝不能改动图案
+  await wait(200);
   check('右键不改动图案', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+  check('右键不翻转该格', dbg.grid.get(2, 5) === false,
+        'cell(2,5) = ' + dbg.grid.get(2, 5));
 
   played.length = 0;
   rightClick(2, 11);
@@ -216,6 +233,24 @@ async function run(win, doc) {
   check('不同行试听不同音高（第 11 行 → 69）',
         played[0] === win.TM.CONFIG.NOTES[11],
         'note = ' + played[0] + '，期望 ' + win.TM.CONFIG.NOTES[11]);
+  check('多次右键仍不改动图案', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  // 左键仍然正常翻转（确认按键判断没有误伤左键）
+  var p5 = at(4, 3);
+  canvas.dispatchEvent(new win.PointerEvent('pointerdown', {
+    clientX: p5.clientX, clientY: p5.clientY,
+    bubbles: true, cancelable: true, pointerId: 10, isPrimary: true, button: 0, buttons: 1
+  }));
+  await waitFor(function () { return dbg.grid.get(4, 3) === true; }, 800);
+  check('左键仍然正常点亮（按键判断没误伤）', dbg.grid.get(4, 3) === true,
+        'cell(4,3) = ' + dbg.grid.get(4, 3));
+  var p5b = at(4, 3);
+  canvas.dispatchEvent(new win.PointerEvent('pointerdown', {
+    clientX: p5b.clientX, clientY: p5b.clientY,
+    bubbles: true, cancelable: true, pointerId: 11, isPrimary: true, button: 0, buttons: 1
+  }));
+  await waitFor(function () { return dbg.grid.get(4, 3) === false; }, 800);
+  check('左键再点可关掉', dbg.grid.get(4, 3) === false);
 
   // 点到画布外不应发声
   played.length = 0;
