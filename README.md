@@ -37,7 +37,7 @@ D 大调五声音阶。因为只用五个音，所以**随手乱点也不会难�
 
 ## 关于
 
-- 灵感来自 **warma**
+- 灵感来自 [【warma实况】Cube Music](https://www.bilibili.com/video/BV1as411q7ax)
 - 由 **DeepSeek v4.1 Flash** 重构实现
 - 原型是 2009 年 Hobnox AudioTool 里的 **ToneMatrix** —— 一个 Flash 音乐玩具。
   这里用原生 JavaScript + Canvas + Web Audio 把它重写了一遍：
@@ -46,9 +46,3 @@ D 大调五声音阶。因为只用五个音，所以**随手乱点也不会难�
 ## 本地运行
 
 把仓库下载下来，双击 `index.html` 就能玩，仅此而已。
-
-想跑回归的话：
-
-```bash
-bash scripts/ci-test.sh
-```
