@@ -42,7 +42,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 63 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 68 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -53,7 +53,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 30 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 37 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 视觉回归（渲染是否被改坏）：
@@ -77,8 +77,8 @@ src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/app.js            装配、输入、主循环（固定步长）
-test/selftest.html    63 项断言（含离线音频渲染、波场稳定性）
-test/interaction.html 30 项页面级交互断言（iframe + ?debug=1）
+test/selftest.html    68 项断言（含离线音频渲染、波场稳定性）
+test/interaction.html 37 项页面级交互断言（iframe + ?debug=1）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -173,10 +173,16 @@ test/diag.html        频率/节点诊断
 |---|---|
 | 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
 | 点击 / 拖动画布 | 开关方格 |
+| **右键方格** | **试听该格的音**（`audition()`）—— 只发声 + 打一圈涟漪，**不改图案** |
 | `#btn-toggle` | 播放 / 暂停 |
 | `#btn-clear` | 清空 |
 | `#btn-wave` | 开关涟漪辉光 |
 | `#btn-playhead` | 开关播放列高亮 |
+
+- 试听的 `contextmenu` 监听挂在 `.canvas-wrap` 上而不是 `canvas` 上：启动前遮罩层
+  盖在 canvas 上方，只监听 canvas 会让第一次右键落到遮罩上并弹出浏览器菜单。
+- 试听复用 `renderer.pulse(col, row)` 做视觉反馈 —— 它与 `setStep` 的种子注入等价，
+  但**只注入一次**。反复注入同一格会让波场指数发散（见 §6）。
 
 - 播放状态以 `sequencer.playing` 为唯一真相，按钮文案由 `syncPlayButton()` 派生，
   不要在事件处理里各自维护一个布尔量。
@@ -199,6 +205,8 @@ test/diag.html        频率/节点诊断
 6. **空格键改为暂停 / 继续**，清空不再占用快捷键（原作空格是清空）。
    清空只剩按钮入口 —— 这是刻意去掉的，别"顺手加回来"。
 7. **涟漪辉光可开关**（`#btn-wave`）。原作没有这个开关，辉光始终开启。
+8. **右键试听**。原作没有这个交互。右键某一格会单独播一次该格的音（走同一条
+   发声链路，含延迟），并在该格打一圈涟漪作为视觉反馈，但不改动图案。
 
 ## 9. 提交约定
 

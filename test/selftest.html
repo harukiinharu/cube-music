@@ -257,6 +257,24 @@
   check('持续注入会指数爆炸（故暂停必须停止注入）', blown > 1e6,
         'max|mapA| = ' + blown.toExponential(2));
 
+  // ── 5.4 单次脉冲（右键试听用）──────────────────────────
+  var gu = new TM.Grid();
+  var ru = new TM.Renderer(document.getElementById('tcanvas'), gu);
+  ru.setWaveEnabled(true);
+  check('pulse 在指定格注入种子（mapB[行][列]）',
+        ru.pulse(3, 7) === true && ru.mapB[7][3] === -1,
+        'mapB[7][3] = ' + ru.mapB[7][3]);
+  check('pulse 越界返回 false 且不注入',
+        ru.pulse(-1, 0) === false && ru.pulse(16, 0) === false &&
+        ru.pulse(0, 16) === false);
+  check('pulse 不改动图案', gu.count() === 0, 'count = ' + gu.count());
+
+  ru.stepDiffusion(0, false);                 // 推进一帧，种子应变成正能量
+  check('pulse 的种子会产生涟漪', ru.mapA[7][3] > 0, 'mapA[7][3] = ' + ru.mapA[7][3]);
+
+  ru.setWaveEnabled(false);
+  check('涟漪关闭时 pulse 不注入', ru.pulse(2, 2) === false && ru.mapB[2][2] === 0);
+
   // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
   function fakeAudio(latency) {
     return {

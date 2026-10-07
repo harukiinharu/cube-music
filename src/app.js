@@ -150,8 +150,28 @@
     global.addEventListener('resize', function () { rect = null; });
     global.addEventListener('scroll', function () { rect = null; }, true);
 
-    // 阻止画布上的右键菜单干扰
-    canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    // 右键：试听该格的音，不改动图案（顺带屏蔽浏览器右键菜单）。
+    // 挂在容器上而不是 canvas 上 —— 启动前遮罩层盖在 canvas 上方，
+    // 若只监听 canvas，第一次右键会落到遮罩上而弹出浏览器菜单。
+    var wrap = document.querySelector('.canvas-wrap') || canvas;
+    wrap.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      if (!rect) rect = canvas.getBoundingClientRect();
+      var cell = cellAt(e, rect);
+      if (cell) audition(cell);
+    });
+  }
+
+  /**
+   * 试听某一格对应的音。只发声 + 在该格打一圈涟漪，不修改图案。
+   * 音频未启动时先启动（boot 内部已 catch，始终会 resolve）。
+   */
+  function audition(cell) {
+    var note = CFG.NOTES[cell.row];
+    renderer.pulse(cell.col, cell.row);   // 同步给出视觉反馈
+    boot().then(function () {
+      audio.synthNote(note, 0);
+    });
   }
 
   function cellAt(e, rect) {

@@ -180,6 +180,53 @@ async function run(win, doc) {
   await waitFor(function () { return dbg.grid.count() === 0; }, 800);
   check('清空按钮仍然清空网格', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
 
+  // ── 右键试听（只发声，不改图案）────────────────────────
+  var played = [];
+  var origSynth = dbg.audio.synthNote;
+  dbg.audio.synthNote = function (note, when) {
+    played.push(note);
+    return origSynth.call(this, note, when);
+  };
+
+  function rightClick(col, row) {
+    canvas.dispatchEvent(new win.MouseEvent('contextmenu', {
+      clientX: rect.left + rect.width * ((col + 0.5) / 16),
+      clientY: rect.top + rect.height * ((row + 0.5) / 16),
+      bubbles: true, cancelable: true
+    }));
+  }
+
+  check('试听前网格为空', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  rightClick(2, 5);
+  check('右键在该格注入一圈涟漪', dbg.renderer.mapB[5][2] === -1,
+        'mapB[5][2] = ' + dbg.renderer.mapB[5][2]);
+
+  var gotSound = await waitFor(function () { return played.length > 0; }, 1500,
+                               '等待右键试听发声');
+  check('右键触发发声', gotSound && played.length === 1, '调用 ' + played.length + ' 次');
+  check('音高 = NOTES[行]（第 5 行 → 84）',
+        played[0] === win.TM.CONFIG.NOTES[5],
+        'note = ' + played[0] + '，期望 ' + win.TM.CONFIG.NOTES[5]);
+  check('右键不改动图案', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  played.length = 0;
+  rightClick(2, 11);
+  await waitFor(function () { return played.length > 0; }, 1500);
+  check('不同行试听不同音高（第 11 行 → 69）',
+        played[0] === win.TM.CONFIG.NOTES[11],
+        'note = ' + played[0] + '，期望 ' + win.TM.CONFIG.NOTES[11]);
+
+  // 点到画布外不应发声
+  played.length = 0;
+  canvas.dispatchEvent(new win.MouseEvent('contextmenu', {
+    clientX: rect.left - 20, clientY: rect.top - 20, bubbles: true, cancelable: true
+  }));
+  await wait(200);
+  check('右键画布外不发声', played.length === 0, '调用 ' + played.length + ' 次');
+
+  delete dbg.audio.synthNote;              // 还原，避免影响后续断言
+
   // ── 涟漪关闭时点按仍然可用 ─────────────────────────────
   wave.click();
   check('涟漪已关闭', dbg.renderer.showWave === false);
