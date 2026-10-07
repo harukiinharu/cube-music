@@ -29,7 +29,7 @@ jobs:
       - name: 组装站点
         run: |
           mkdir -p _site
-          cp -R index.html style.css src test AGENTS.md preview-render.png _site/
+          cp -R index.html style.css src test AGENTS.md _site/
           echo "站点文件："
           find _site -type f | sort
 

@@ -267,8 +267,11 @@ test/diag.html        频率/节点诊断
   **推送走 git/SSH 没问题，但任何仓库设置（启用 Pages、改 Actions 权限）都得在网页端操作**。
 - **自动化**：`.github/workflows/deploy.yml`。push 到 `main` 即触发：
   跑 `scripts/ci-test.sh` → 组装 `_site/` → 部署到 Pages。**回归不通过就不部署。**
-- 只有 `index.html` / `style.css` / `src/` / `test/` / `AGENTS.md` / `preview-render.png`
-  会被发布；`.github/` 与 `scripts/` 不进站点。
+- 只有 `index.html` / `style.css` / `src/` / `test/` / `AGENTS.md` 会被发布；
+  `.github/` 与 `scripts/` 不进站点。README.md / front.png 只进仓库
+  （GitHub 渲染 README 时解析相对图片），不进 Pages 站点 —— 站点首页就是应用本身。
+  **改发布范围时记得同步 `deploy.yml` 的 `cp -R` 行**：那里列了谁就复制谁，
+  少列一个文件会让整个部署直接失败。
 - 站点是**项目页**（仓库名就是路径前缀），所有资源引用必须保持**相对路径**，
   不要写成 `/src/...`，否则在 `harukiinharu.github.io/cube-music/` 下会 404。
 - 本地跑同一套回归：`bash scripts/ci-test.sh`
