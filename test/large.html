@@ -506,6 +506,27 @@ try { localStorage.removeItem('cubemusic.pattern.64x36'); } catch (e) { /* 存�
           !frameEl.contains(doc.getElementById('overlay')) &&
           !!doc.querySelector('.board-shell .overlay'));
 
+    // style.css 里 --board-w / --board-h 的**回退值**也是硬编码的，
+    // 脚本执行前的那一瞬间靠它排版。改了行数忘了同步这里，加载时会先按旧尺寸
+    // 排一遍再跳一下 —— 这条断言就是防这个的（曾经真的漏过一次）。
+    check('style.css 的 --board-w / --board-h 回退值与棋盘一致', (function () {
+      var seen = { w: false, h: false };
+      var sheets = doc.styleSheets;
+      for (var i = 0; i < sheets.length; i++) {
+        var rules;
+        try { rules = sheets[i].cssRules; } catch (e) { continue; }   // 跨域表跳过
+        for (var j = 0; j < rules.length; j++) {
+          var st = rules[j].style;
+          if (!st) continue;
+          if (/--board-w,\s*2048px/.test(st.getPropertyValue('max-width') || '')) seen.w = true;
+          if (/--board-h,\s*1152px/.test(st.getPropertyValue('max-height') || '')) seen.h = true;
+          if (/--board-w,\s*2048px/.test(st.getPropertyValue('width') || '')) seen.w = true;
+          if (/--board-h,\s*1152px/.test(st.getPropertyValue('height') || '')) seen.h = true;
+        }
+      }
+      return seen.w && seen.h;
+    })(), '回退值需与 large-config 的 cols/rows 一致');
+
     // 命中测试：点最右一列、最下一行 —— 写死 16 的话这里必然错位
     function tapCell(col, row, pointerId) {
       var p = {
