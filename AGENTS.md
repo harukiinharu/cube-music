@@ -46,7 +46,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 110 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 117 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 84 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 107 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 91 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 92 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -97,9 +97,9 @@ src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
-test/selftest.html    110 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
-test/interaction.html 84 项页面级交互断言（iframe + ?debug=1）
-test/large.html       91 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/selftest.html    117 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
+test/interaction.html 107 项页面级交互断言（iframe + ?debug=1）
+test/large.html       92 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -218,6 +218,25 @@ test/diag.html        频率/节点诊断
 | **点 / 拖棋盘上方的位置标尺** | **移动播放游标**（`sequencer.seek()`）—— 按住拖动即擦洗 |
 | **⌘/Ctrl + Z** | 撤销 |
 | **⌘/Ctrl + ⇧ + Z**（或 `Ctrl+Y`） | 反撤销 |
+| **Alt + 左键拖动** | 拉框选择一块矩形 |
+| **选区内按住左键拖** | 整块搬走（夹在棋盘内，拖不出去） |
+| **A** / **X** | 把选区填满 / 清空 |
+| **Esc** | 取消选择（点选区外也一样） |
+
+- **框选**：选区就是一块矩形（`renderer.selection`，已归一化）。Alt+拖画框；
+  框内按住左键整体搬走；A 填满、X 清空、Esc 取消。
+  点**选区外**会先取消选择再照常涂抹 —— 和图像编辑器的习惯一致。
+  - **拖动状态（`dragMode` / `dragAnchor` / `move*`）声明在模块级，不在 `bindInput` 里。**
+    `applyMove()` 这些 helper 定义在 `bindInput` **外面**；声明在里面的话 helper 访问到的
+    是未声明变量，在 `'use strict'` 下直接抛 ReferenceError，而事件处理里的异常会被静默
+    吞掉 —— 表现成「按下去什么也没发生」，极难查。**踩过一次。**
+  - **搬动每次都从按下那一刻的整张谱子（`moveBase`）重算**，不在上一次结果上叠加。
+    位移还要按选区尺寸夹在棋盘内（`Math.max(-s.col0, Math.min(dc, cols-1-s.col1))`），
+    否则拖出边界时 `Uint8Array` 会静默丢弃越界写入、整块悄悄缺一块。
+  - **选区高亮是青色的（`CONFIG.COLORS.select`），这是本项目新增的色相**：
+    原版只有黑白灰，不留个颜色的话「选中区域」和「亮着的格子」分不出来
+    （尤其选了一片全是亮格的区域）。它是**交互状态**，画在合成层最上层
+    （辉光之上，`_drawSelection`），**不碰格子图层**。
 
 - **撤销的粒度是「一次操作」，不是「一格」。** 快照在**操作开始时**拍
   （画布 `pointerdown` / 清空 / 载入），所以按住拖过一整条只占一步。
@@ -329,6 +348,11 @@ test/diag.html        频率/节点诊断
   `pointerdown` + 若干 `pointermove`。
 - **写完回归测试，把修复撤掉再跑一遍**，确认它确实会失败。
   不会失败的回归测试等于没写。撤掉后失败的条目数应与新增断言数吻合。
+- **负向断言先确认前置状态是非平凡的。** 「删除之后数量不变」「撤销之后没变化」
+  这类断言，如果被作用的对象**本来就是空的**，撤掉实现也照样绿 —— 等于没写。
+  已经踩过两次：在空时间轴上验证「seek 清空时间轴」，在空选区里验证
+  「焦点在输入框时 X 不动选区」。**先断言前置状态（`count === 2`），再断言结果。**
+  变异验证就是用来抓这种假断言的 —— 它专门暴露「撤掉实现也不红」。
 - 改速度相关的逻辑时，重点验证 60 / 90 / 120 / 180 / 240 BPM 五个点。
 
 ## 11. 发布与部署

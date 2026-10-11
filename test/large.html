@@ -628,6 +628,33 @@ try { localStorage.removeItem('cubemusic.score.large'); } catch (e) { /* 存储�
     check('大面板：⌘Z 撤销刚才那一格', dbg.grid.get(20, 20) === false,
           'cell(20,20) = ' + dbg.grid.get(20, 20));
 
+    // ── 框选在大面板上也要按 64×48 命中 ────────────────────
+    function altDragCell(c0, r0, c1, r1, pointerId) {
+      var a = { clientX: rect.left + rect.width * ((c0 + 0.5) / 64),
+                clientY: rect.top + rect.height * ((r0 + 0.5) / 48) };
+      var b = { clientX: rect.left + rect.width * ((c1 + 0.5) / 64),
+                clientY: rect.top + rect.height * ((r1 + 0.5) / 48) };
+      canvas.dispatchEvent(new win.PointerEvent('pointerdown', {
+        clientX: a.clientX, clientY: a.clientY, altKey: true,
+        bubbles: true, cancelable: true, pointerId: pointerId, isPrimary: true
+      }));
+      canvas.dispatchEvent(new win.PointerEvent('pointermove', {
+        clientX: b.clientX, clientY: b.clientY, altKey: true,
+        bubbles: true, cancelable: true, pointerId: pointerId, isPrimary: true
+      }));
+      canvas.dispatchEvent(new win.PointerEvent('pointerup', {
+        clientX: b.clientX, clientY: b.clientY,
+        bubbles: true, pointerId: pointerId, isPrimary: true
+      }));
+    }
+
+    altDragCell(50, 40, 55, 45, 71);
+    var bigSel = dbg.renderer.selection;
+    check('大面板：Alt 拖动拉出选区（命中按 64 列 / 48 行算）',
+          !!bigSel && bigSel.col0 === 50 && bigSel.row0 === 40 &&
+          bigSel.col1 === 55 && bigSel.row1 === 45,
+          bigSel ? JSON.stringify(bigSel) : '无选区');
+
     // 播放一帧，确认渲染链路在 2048 × 1536 上真的跑得动
     dbg.renderer.composite(63);
     var px = canvas.getContext('2d')

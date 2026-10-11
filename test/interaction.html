@@ -565,6 +565,152 @@ async function run(win, doc) {
   check('焦点在输入框里时 ⌘Z 不撤销棋盘',
         dbg.grid.count() === keepCount, 'count = ' + dbg.grid.count());
 
+  // ── 框选：Alt 拉框 / 整体搬动 / X 删除 / A 填充 ─────────
+  function altDrag(c0, r0, c1, r1, id) {
+    var a = ptAt(c0, r0), b = ptAt(c1, r1);
+    mtx.dispatchEvent(new win.PointerEvent('pointerdown', {
+      clientX: a.clientX, clientY: a.clientY, altKey: true,
+      bubbles: true, cancelable: true, pointerId: id, isPrimary: true
+    }));
+    mtx.dispatchEvent(new win.PointerEvent('pointermove', {
+      clientX: b.clientX, clientY: b.clientY, altKey: true,
+      bubbles: true, cancelable: true, pointerId: id, isPrimary: true
+    }));
+    dropPointer(id);
+  }
+  function key(k) {
+    win.dispatchEvent(new win.KeyboardEvent('keydown', {
+      key: k, bubbles: true, cancelable: true
+    }));
+  }
+
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  dbg.grid.set(2, 2, true); dbg.grid.set(3, 2, true);
+  dbg.grid.set(2, 3, true); dbg.grid.set(3, 3, true);
+  check('准备：一个 2×2 的块', dbg.grid.count() === 4, 'count = ' + dbg.grid.count());
+  check('初始没有选区', dbg.renderer.selection === null);
+
+  altDrag(1, 1, 4, 4, 61);
+  var sel = dbg.renderer.selection;
+  check('Alt + 左键拖动拉出选区', !!sel, sel ? JSON.stringify(sel) : '无选区');
+  check('选区矩形含起止两端',
+        sel && sel.col0 === 1 && sel.row0 === 1 && sel.col1 === 4 && sel.row1 === 4,
+        sel ? JSON.stringify(sel) : '');
+
+  altDrag(6, 6, 4, 4, 62);                 // 反向拖（右下 → 左上）
+  sel = dbg.renderer.selection;
+  check('反方向拖动会归一化',
+        sel && sel.col0 === 4 && sel.row0 === 4 && sel.col1 === 6 && sel.row1 === 6,
+        sel ? JSON.stringify(sel) : '');
+
+  // 在选区内按住左键 → 整体搬走
+  altDrag(1, 1, 4, 4, 63);
+  var beforeMove = dbg.grid.count();
+  var pd = ptAt(2, 2);                     // 按在选区内
+  mtx.dispatchEvent(new win.PointerEvent('pointerdown', {
+    clientX: pd.clientX, clientY: pd.clientY,
+    bubbles: true, cancelable: true, pointerId: 64, isPrimary: true
+  }));
+  var pm = ptAt(3, 5);                     // 往右下挪（+1 列 +3 行）
+  mtx.dispatchEvent(new win.PointerEvent('pointermove', {
+    clientX: pm.clientX, clientY: pm.clientY,
+    bubbles: true, cancelable: true, pointerId: 64, isPrimary: true
+  }));
+  dropPointer(64);
+  check('整体搬动不改变音符个数', dbg.grid.count() === beforeMove,
+        dbg.grid.count() + ' vs ' + beforeMove);
+  check('块搬到了新位置、原位置已清空',
+        dbg.grid.get(3, 5) && dbg.grid.get(4, 5) &&
+        dbg.grid.get(3, 6) && dbg.grid.get(4, 6) &&
+        !dbg.grid.get(2, 2) && !dbg.grid.get(2, 3),
+        'count = ' + dbg.grid.count());
+  check('选区跟着块一起过去',
+        dbg.renderer.selection.col0 === 2 && dbg.renderer.selection.row0 === 4 &&
+        dbg.renderer.selection.col1 === 5 && dbg.renderer.selection.row1 === 7,
+        JSON.stringify(dbg.renderer.selection));
+  pressKey('z', { meta: true });           // 整次搬动应该只占一步
+  check('整次搬动只占一步撤销（块回到原处）',
+        dbg.grid.get(2, 2) && dbg.grid.get(3, 3) && !dbg.grid.get(3, 5),
+        'count = ' + dbg.grid.count());
+  pressKey('z', { meta: true, shift: true });
+
+  // X 删除选区内的音符（重新铺一个块，别依赖上面那串搬动之后的落点）
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  dbg.grid.set(2, 2, true); dbg.grid.set(3, 2, true);
+  dbg.grid.set(2, 3, true); dbg.grid.set(3, 3, true);
+  altDrag(1, 1, 4, 4, 65);
+  var beforeX = dbg.grid.count();
+  check('准备：块确实落在选区内', beforeX === 4, 'count = ' + beforeX);
+  key('x');
+  check('X 删除选区内的音符', dbg.grid.count() === beforeX - 4,
+        dbg.grid.count() + ' vs ' + beforeX);
+  check('删除后选区还在（方便继续操作）', !!dbg.renderer.selection);
+  pressKey('z', { meta: true });
+  check('删除可以撤销', dbg.grid.count() === beforeX, 'count = ' + dbg.grid.count());
+
+  // A 填满选区
+  dbg.grid.clear();
+  altDrag(5, 5, 7, 7, 66);
+  key('a');
+  check('A 填满选区（3×3 = 9 格）', dbg.grid.count() === 9, 'count = ' + dbg.grid.count());
+  pressKey('z', { meta: true });
+  check('填充可以撤销', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+
+  // 拖出棋盘要被夹住：整块还在，只是贴到边界
+  dbg.grid.clear();
+  dbg.grid.set(2, 2, true); dbg.grid.set(3, 2, true);
+  dbg.grid.set(2, 3, true); dbg.grid.set(3, 3, true);
+  altDrag(1, 1, 4, 4, 70);
+  var countBeforeFar = dbg.grid.count();
+  var pf0 = ptAt(2, 2);
+  mtx.dispatchEvent(new win.PointerEvent('pointerdown', {
+    clientX: pf0.clientX, clientY: pf0.clientY,
+    bubbles: true, cancelable: true, pointerId: 71, isPrimary: true
+  }));
+  var pf1 = ptAt(15, 15);                  // 远远拖出右下角
+  mtx.dispatchEvent(new win.PointerEvent('pointermove', {
+    clientX: pf1.clientX, clientY: pf1.clientY,
+    bubbles: true, cancelable: true, pointerId: 71, isPrimary: true
+  }));
+  dropPointer(71);
+  check('拖出边界会被夹住，音符一个不少', dbg.grid.count() === countBeforeFar,
+        dbg.grid.count() + ' vs ' + countBeforeFar);
+  check('夹住后整块贴到右下角',
+        dbg.grid.get(13, 13) && dbg.grid.get(14, 13) &&
+        dbg.grid.get(13, 14) && dbg.grid.get(14, 14),
+        'count = ' + dbg.grid.count());
+
+  // Esc 取消选区
+  key('Escape');
+  check('Esc 取消选区', dbg.renderer.selection === null);
+
+  // 点在选区外 → 取消选择 + 正常涂抹
+  altDrag(2, 2, 4, 4, 67);
+  check('重新拉出选区', !!dbg.renderer.selection);
+  tapAt(10, 10, 68);
+  dropPointer(68);
+  check('点选区外会取消选择', dbg.renderer.selection === null);
+  check('点选区外同时正常点亮那一格', dbg.grid.get(10, 10) === true);
+
+  // 焦点在输入框里时，X / A 不能去动选区。
+  // 注意：选区内**必须真的有音符**，否则删掉也不会变，这条断言就成了摆设。
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  dbg.grid.set(1, 1, true);
+  dbg.grid.set(2, 2, true);
+  altDrag(1, 1, 3, 3, 69);
+  var beforeKeys = dbg.grid.count();
+  check('准备：选区内确实有音符', beforeKeys === 2 && !!dbg.renderer.selection,
+        'count = ' + beforeKeys);
+  shareCode.dispatchEvent(new win.KeyboardEvent('keydown', {
+    key: 'x', bubbles: true, cancelable: true
+  }));
+  check('焦点在输入框时 X 不动选区',
+        dbg.grid.count() === beforeKeys && !!dbg.renderer.selection,
+        'count = ' + dbg.grid.count());
+
   report();
 }
 </script>

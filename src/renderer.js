@@ -95,6 +95,7 @@
     this.showPlayhead = true;
     this.showWave = true;         // 涟漪辉光开关
     this.highlights = [];         // 右键试听的临时白色描边 [{col,row,until}]
+    this.selection = null;        // 框选区域 {col0,row0,col1,row1}（已归一化）
     this.stepIndex = 0;
 
     this.grid.onChange(function (grid, action) {
@@ -192,6 +193,32 @@
       roundRect(ctx, h.col * this.cell + inset, h.row * this.cell + inset, side, side, 4);
       ctx.stroke();
     }
+    ctx.restore();
+  };
+
+  /**
+   * 画框选高亮：淡色填充 + 一圈描边。
+   *
+   * 画的是整个矩形（包含区域内的空格子），不是只给亮着的格子上色 ——
+   * 移动 / 填充 / 删除都是对「这一块矩形」操作的，边界要看得见。
+   * 描边取 2px 并内缩 1px，这样在任意整数 dpr 下都是偶数设备像素，不会糊。
+   */
+  Renderer.prototype._drawSelection = function () {
+    var s = this.selection;
+    if (!s) return;
+
+    var ctx = this.ctx;
+    var x = s.col0 * this.cell;
+    var y = s.row0 * this.cell;
+    var w = (s.col1 - s.col0 + 1) * this.cell;
+    var h = (s.row1 - s.row0 + 1) * this.cell;
+
+    ctx.save();
+    ctx.fillStyle = CFG.COLORS.selectFill;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = CFG.COLORS.select;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
     ctx.restore();
   };
 
@@ -344,6 +371,9 @@
       ctx.imageSmoothingEnabled = false;
       ctx.globalCompositeOperation = 'source-over';
     }
+
+    // 框选高亮在辉光之上 —— 它是交互状态，不能被 ADD 辉光冲淡
+    this._drawSelection();
 
     // 描边放在最上层，保证辉光不会把它冲淡
     this._drawHighlights();

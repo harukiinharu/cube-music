@@ -300,6 +300,56 @@
         '回到 ' + lumAt(rh, 0, 0, 16, 1));
   check('过期条目被清理', rh.highlights.length === 0);
 
+  // ── 5.45 框选高亮：只画在合成层，不碰格子图层 ───────────
+  var gsel = new TM.Grid();
+  var rsel = new TM.Renderer(document.getElementById('tcanvas'), gsel);
+  rsel.showWave = false;
+  rsel.showPlayhead = false;
+
+  function selPix(r, col, row) {
+    var d = r.ctx.getImageData(
+      Math.round((col * CFG.CELL + CFG.CELL / 2) * r.scale),
+      Math.round((row * CFG.CELL + CFG.CELL / 2) * r.scale), 1, 1).data;
+    return { r: d[0], g: d[1], b: d[2] };
+  }
+
+  rsel.selection = null;
+  rsel.composite(0);
+  var selNone = selPix(rsel, 4, 4);
+  check('无选区时画面仍是灰阶',
+        selNone.r === selNone.g && selNone.g === selNone.b, JSON.stringify(selNone));
+
+  rsel.selection = { col0: 2, row0: 2, col1: 5, row1: 5 };
+  rsel.composite(0);
+  var selIn = selPix(rsel, 4, 4);
+  var selOut = selPix(rsel, 9, 9);
+  check('选区内叠上了青色高亮（蓝明显高于红）', selIn.b > selIn.r + 8,
+        JSON.stringify(selIn));
+  check('选区外不受影响，仍是灰阶',
+        selOut.r === selOut.g && selOut.g === selOut.b, JSON.stringify(selOut));
+  check('框选只画在合成层，格子图层像素不变（纯灰阶）', (function () {
+    var d = rsel.patternLayer.getContext('2d').getImageData(
+      Math.round(4 * CFG.CELL * rsel.scale),
+      Math.round(4 * CFG.CELL * rsel.scale), 1, 1).data;
+    return d[0] === d[1] && d[1] === d[2];
+  })());
+  check('同一个格子在选区内的 RGB 与选区外不同', selIn.b !== selOut.b,
+        selIn.b + ' vs ' + selOut.b);
+
+  // 边界要落在格子上，不能溢出选区
+  var selEdgeIn = selPix(rsel, 5, 5);
+  var selEdgeOut = selPix(rsel, 6, 6);
+  check('选区右下角内是亮的、紧邻外侧不是', selEdgeIn.b > selEdgeIn.r + 8 &&
+        selEdgeOut.r === selEdgeOut.g, '内 ' + JSON.stringify(selEdgeIn) +
+        ' / 外 ' + JSON.stringify(selEdgeOut));
+
+  rsel.selection = null;
+  rsel.composite(0);
+  check('清掉选区后画面恢复灰阶', (function () {
+    var p = selPix(rsel, 4, 4);
+    return p.r === p.g && p.g === p.b;
+  })());
+
   // ── 5.5 音序器时基（视觉靠时间轴反查，不是公式推算）──────
   function fakeAudio(latency) {
     return {

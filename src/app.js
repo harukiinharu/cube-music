@@ -138,6 +138,8 @@
   function bindInput() {
     var rect = null;          // 缓存的画布矩形，避免每次 pointermove 都触发重排
     var lastCell = null;
+    // 拖动状态（dragMode / anchor / move*）声明在模块级 —— 见文件下方「拖动状态」
+    // 那段注释：applyMove() 定义在 bindInput 外面，声明在这里它就看不见了。
 
     canvas.addEventListener('pointerdown', function (e) {
       // 只响应主键（左键）。浏览器在右键时会**先**派发 pointerdown(button=2)
@@ -151,6 +153,31 @@
       }
       var cell = cellAt(e, rect);
       if (!cell) return;
+
+      // Alt + 左键拖 = 拉框选择
+      if (e.altKey) {
+        dragMode = 'select';
+        dragAnchor = cell;
+        setSelection(cell, cell);
+        lastCell = null;
+        return;
+      }
+
+      // 已有选区、且按在选区**里面** = 整体搬走这一块
+      if (renderer.selection && inSelection(cell)) {
+        dragMode = 'move';
+        moveBase = grid.cells.slice();
+        moveFrom = cell;
+        moveRect = renderer.selection;
+        moveDc = 0; moveDr = 0;
+        pushHistory();                 // 整次搬动 = 一步撤销
+        return;
+      }
+
+      // 按在选区外：先取消选择，再按老路子涂抹
+      if (renderer.selection) setSelection(null);
+
+      dragMode = 'paint';
       pushHistory();                                  // 一次按下 = 一步撤销
       paintValue = grid.toggle(cell.col, cell.row);   // 同步上色，不等音频
       lastCell = cell;
@@ -158,8 +185,19 @@
     });
 
     canvas.addEventListener('pointermove', function (e) {
-      if (paintValue === null) return;
       if (!rect) rect = canvas.getBoundingClientRect();
+
+      if (dragMode === 'select') {
+        var sel = cellAt(e, rect);
+        if (sel) setSelection(dragAnchor, sel);
+        return;
+      }
+      if (dragMode === 'move') {
+        var dst = cellAt(e, rect);
+        if (dst) applyMove(dst);
+        return;
+      }
+      if (dragMode !== 'paint' || paintValue === null) return;
 
       // 快速拖动时浏览器会把多个移动合并成一个事件，
       // getCoalescedEvents() 能取回中间点，避免漏格。
@@ -175,9 +213,14 @@
     });
 
     var endPaint = function () {
-      if (paintValue === null) return;
+      if (dragMode === null) return;
+      dragMode = null;
       paintValue = null;
       lastCell = null;
+      dragAnchor = null;
+      moveBase = null;
+      moveFrom = null;
+      moveRect = null;
     };
     canvas.addEventListener('pointerup', endPaint);
     canvas.addEventListener('pointercancel', endPaint);
@@ -206,6 +249,27 @@
       } else if (k === 'y') {          // Windows 习惯的反撤销
         e.preventDefault();
         redo();
+      }
+    });
+
+    // 选区快捷键：X 删除、A 填充、Esc 取消选择。
+    // 不带修饰键、且焦点不在输入框里 —— 否则 Cmd+A（全选）之类会被误伤。
+    global.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      if (!renderer.selection) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      var k = (e.key || '').toLowerCase();
+      if (k === 'x') {
+        e.preventDefault();
+        setSelectionCells(0);          // 删除
+      } else if (k === 'a') {
+        e.preventDefault();
+        setSelectionCells(1);          // 填充
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelection(null);            // 取消选择
       }
     });
 
@@ -240,6 +304,83 @@
     boot().then(function () {
       audio.synthNote(note, 0);
     });
+  }
+
+  // ── 拖动状态 ────────────────────────────────────────────
+  //
+  // 这些必须声明在**模块级**：`applyMove()` 等 helper 定义在 `bindInput` 外面，
+  // 若把它们声明在 `bindInput` 里，helper 里访问到的是未声明变量 ——
+  // 在 'use strict' 下直接抛 ReferenceError，而事件处理里的异常会被吞掉，
+  // 表现成「按下去什么也没发生」，极难查。踩过。
+  var dragMode = null;        // null | 'paint'（涂格）| 'select'（拉框）| 'move'（搬选区）
+  var dragAnchor = null;      // 拉框起点
+  var moveBase = null;        // 搬动开始时整张谱子的副本（每次移动都从它重算）
+  var moveFrom = null;        // 搬动起点格
+  var moveRect = null;        // 搬动开始时选区的矩形
+  var moveDc = 0, moveDr = 0;
+
+  // ── 框选 ────────────────────────────────────────────────
+  //
+  // 选区就是一块矩形。Alt + 左键拉框；框内按住左键整体搬走；
+  // X 清空这一块、A 填满这一块、Esc 取消。
+  function setSelection(a, b) {
+    if (!a) { renderer.selection = null; return; }
+    renderer.selection = {
+      col0: Math.min(a.col, b.col), row0: Math.min(a.row, b.row),
+      col1: Math.max(a.col, b.col), row1: Math.max(a.row, b.row)
+    };
+  }
+
+  function inSelection(cell) {
+    var s = renderer.selection;
+    return !!s && cell.col >= s.col0 && cell.col <= s.col1 &&
+                   cell.row >= s.row0 && cell.row <= s.row1;
+  }
+
+  /**
+   * 把整块选区搬到指针所在的格。
+   *
+   * 每次都从 `moveBase`（按下那一刻的整张谱子）**重算**，而不是在上一次结果上
+   * 继续叠加 —— 否则来回拖会把同一块反复叠上去、越拖越多。位移还会夹在棋盘内，
+   * 拖不出边界。
+   */
+  function applyMove(cell) {
+    var s = moveRect;
+    var dc = cell.col - moveFrom.col;
+    var dr = cell.row - moveFrom.row;
+    dc = Math.max(-s.col0, Math.min(dc, grid.cols - 1 - s.col1));
+    dr = Math.max(-s.row0, Math.min(dr, grid.rows - 1 - s.row1));
+    if (dc === moveDc && dr === moveDr) return;    // 没挪满一格就别重绘
+    moveDc = dc; moveDr = dr;
+
+    var next = moveBase.slice();
+    var c, r;
+    for (c = s.col0; c <= s.col1; c++) {           // 先清掉原位置
+      for (r = s.row0; r <= s.row1; r++) next[c * grid.rows + r] = 0;
+    }
+    for (c = s.col0; c <= s.col1; c++) {           // 再把这一块贴到新位置
+      for (r = s.row0; r <= s.row1; r++) {
+        if (!moveBase[c * grid.rows + r]) continue;
+        next[(c + dc) * grid.rows + (r + dr)] = 1;
+      }
+    }
+    grid.replaceAll(next);
+    renderer.selection = {
+      col0: s.col0 + dc, row0: s.row0 + dr,
+      col1: s.col1 + dc, row1: s.row1 + dr
+    };
+  }
+
+  /** 把选区内所有格子设成同一个值：A 传 1（填充）、X 传 0（删除） */
+  function setSelectionCells(value) {
+    var s = renderer.selection;
+    if (!s) return;
+    pushHistory();
+    var next = grid.cells.slice();
+    for (var c = s.col0; c <= s.col1; c++) {
+      for (var r = s.row0; r <= s.row1; r++) next[c * grid.rows + r] = value;
+    }
+    grid.replaceAll(next);
   }
 
   // 命中测试按画布上的归一化坐标缩放。**必须**取 grid.cols / grid.rows，
