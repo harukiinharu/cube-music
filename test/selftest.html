@@ -460,7 +460,7 @@
           gs6.get(2, 2) && gs6.get(9, 14));
     check('存储键按面板尺寸分开',
           S.storageKey(16, 16) === 'cubemusic.pattern.16x16' &&
-          S.storageKey(64, 36) === 'cubemusic.pattern.64x36',
+          S.storageKey(64, 48) === 'cubemusic.pattern.64x48',
           S.storageKey(64, 36));
     check('两个面板的存档互不覆盖', (function () {
       var other = new TM.Grid({ cols: 64, rows: 36 });

@@ -11,7 +11,7 @@
 <main class="stage stage-wide">
   <header class="head">
     <h1>Cube Music <span class="tag">Large</span></h1>
-    <p class="sub">36 音 × 64 步　·　半音阶三个八度　·　方块与原版同尺寸，棋盘较大可滚动</p>
+    <p class="sub">48 音 × 64 步　·　半音阶 A7 → A#3　·　方块与原版同尺寸，棋盘较大可滚动</p>
   </header>
 
   <!-- 棋盘（2048 × 1024）比屏幕大，所以套一个限宽限高的滚动框：
@@ -19,7 +19,7 @@
   <div class="board-shell">
     <div class="board-frame">
       <div class="canvas-wrap">
-        <canvas id="matrix" width="2048" height="1152" aria-label="36 × 64 音符矩阵"></canvas>
+        <canvas id="matrix" width="2048" height="1536" aria-label="48 × 64 音符矩阵"></canvas>
       </div>
     </div>
     <!-- 遮罩放在滚动框**外面**，这样「点击开始」始终在可见区域中央，
