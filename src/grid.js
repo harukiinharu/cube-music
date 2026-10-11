@@ -58,6 +58,18 @@
     this.emit({ type: 'clear' });
   };
 
+  /**
+   * 整张替换（载入乐谱代码时用）。
+   * **只发一次变更事件** —— 逐格 set 会触发 N 次局部重绘和 N 个波场种子，
+   * 载入 64×36 的谱子会明显卡一下。替换走的是渲染器的整层重绘路径。
+   */
+  Grid.prototype.replaceAll = function (cells) {
+    if (!cells || cells.length !== this.cells.length) return false;
+    this.cells.set(cells);
+    this.emit({ type: 'replace' });
+    return true;
+  };
+
   Grid.prototype.any = function () {
     for (var i = 0; i < this.cells.length; i++) {
       if (this.cells[i]) return true;

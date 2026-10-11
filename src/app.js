@@ -18,6 +18,11 @@
   var paintValue = null;
   var booted = false;
 
+  // ── 乐谱保存 ────────────────────────────────────────────
+  var SAVE_DEBOUNCE_MS = 300;      // 拖动时会连发变更，攒一下再写
+  var saveTimer = null;
+  var shareBtn, shareRow, shareCode, shareStatus;
+
   function init() {
     canvas = document.getElementById('matrix');
     // 维度、格子尺寸、音表全部来自 TM.RUNTIME：
@@ -35,6 +40,14 @@
 
     bindInput();
     bindControls();
+
+    // 先载入乐谱，**再**挂自动保存 —— 否则载入本身会立刻回写一遍存储。
+    // 优先级：URL hash（分享链接）> localStorage（本机自动存档）。
+    restoreScore();
+    grid.onChange(function () { scheduleSave(); });
+
+    // 关页面时把还没落盘的那次改动补上（防抖窗口内退出会丢）
+    global.addEventListener('pagehide', flushSave);
 
     // 仅在 ?debug=1 时暴露内部句柄，供自动化测试直接读模型状态。
     // 测试不应依赖渲染后的像素 —— 无头环境里 rAF 与定时器的推进节奏不一致，
@@ -236,10 +249,102 @@
       audio.setVolume(vol.value / 100);
       document.getElementById('volume-out').textContent = vol.value + '%';
     });
+
+    // ── 乐谱：导出 / 载入面板 ─────────────────────────────
+    shareBtn = document.getElementById('btn-share');
+    shareRow = document.getElementById('share-row');
+    shareCode = document.getElementById('share-code');
+    shareStatus = document.getElementById('share-status');
+
+    shareBtn.addEventListener('click', function () { toggleShare(); });
+    document.getElementById('btn-share-copy').addEventListener('click', copyShare);
+    document.getElementById('btn-share-load').addEventListener('click', loadShare);
   }
 
   function readTempo() {
     return parseInt(document.getElementById('tempo').value, 10) || CFG.TEMPO;
+  }
+
+  // ── 乐谱：本地保存 / 导入导出 ───────────────────────────
+  //
+  // 自动保存是**静默**的：改动后防抖写进 localStorage，刷新或关掉重开都还在。
+  // 「导出 / 载入」面板负责跨设备搬运 —— 把整张谱子编成一段自包含的短代码。
+
+  /**
+   * 载入乐谱。优先 URL 的 hash（分享链接），其次本机的自动存档。
+   * hash 用过一次就清掉：否则它会在每次刷新时盖住之后自动保存的新内容，
+   * 用户改完一刷新发现被打回原样。
+   */
+  function restoreScore() {
+    var fromHash = readHashCode();
+    if (fromHash) {
+      var r = TM.Store.applyCode(grid, fromHash);
+      if (r.ok) { clearHash(); return; }
+    }
+    var saved = TM.Store.load(grid.cols, grid.rows);
+    if (saved) TM.Store.applyCode(grid, saved);
+  }
+
+  function readHashCode() {
+    var m = /(?:^#|&)p=([^&]+)/.exec(global.location.hash || '');
+    if (!m) return '';
+    try { return decodeURIComponent(m[1]); } catch (e) { return ''; }
+  }
+
+  function clearHash() {
+    if (!global.history || !global.history.replaceState) return;
+    global.history.replaceState(null, '',
+      global.location.pathname + global.location.search);
+  }
+
+  function scheduleSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+  }
+
+  function flushSave() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    TM.Store.save(grid);
+  }
+
+  function setShareStatus(msg) {
+    if (shareStatus) shareStatus.textContent = msg;
+  }
+
+  function toggleShare(force) {
+    var show = (force === undefined) ? shareRow.hidden : !!force;
+    shareRow.hidden = !show;
+    shareBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    if (!show) return;
+
+    shareCode.value = TM.Store.encode(grid);
+    shareCode.select();
+    setShareStatus(TM.Store.available()
+      ? '这是当前乐谱。复制发给别人，或把别人的代码粘进来点「载入」。'
+      : '当前环境不能自动保存（无痕模式或存储被禁用），请用「复制」手动备份。');
+  }
+
+  function copyShare() {
+    shareCode.select();
+    // **先**给出确定的反馈：clipboard.writeText 的 promise 在无用户手势、
+    // 无权限或 file:// 下可能一直挂着不 resolve 也不 reject（实测如此），
+    // 把反馈挂在它上面会让按钮点了没反应。写入成功时再升级文案。
+    setShareStatus('已选中，按 ⌘C / Ctrl+C 复制');
+    var clip = global.navigator && global.navigator.clipboard;
+    if (!clip || !clip.writeText) return;      // 非安全上下文下根本没有这个 API
+    try {
+      clip.writeText(shareCode.value).then(function () {
+        setShareStatus('已复制到剪贴板');
+      }, function () { /* 保持上面那句提示 */ });
+    } catch (e) { /* 保持提示 */ }
+  }
+
+  function loadShare() {
+    var r = TM.Store.applyCode(grid, shareCode.value);
+    if (!r.ok) { setShareStatus('载入失败：' + r.error); return; }
+    shareCode.value = TM.Store.encode(grid);       // 规整成标准写法
+    shareCode.select();
+    setShareStatus('已载入 ' + grid.count() + ' 个音符');
   }
 
   // ── 主循环 ──────────────────────────────────────────────

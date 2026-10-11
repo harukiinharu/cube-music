@@ -12,6 +12,7 @@
 <script src="../src/audio.js"></script>
 <script src="../src/sequencer.js"></script>
 <script src="../src/renderer.js"></script>
+<script src="../src/storage.js"></script>
 <script>
 (function () {
   var TM = window.TM, CFG = TM.CONFIG;
@@ -20,6 +21,9 @@
   function check(name, ok, detail) {
     (ok ? pass++ : fail++);
     lines.push((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   ' + detail : ''));
+  }
+  function info(name, detail) {
+    lines.push('INFO  ' + name + (detail ? '   ' + detail : ''));
   }
   function near(a, b, tol) { return Math.abs(a - b) <= tol; }
 
@@ -388,6 +392,89 @@
         scheduled.length === 1 &&
         near(scheduled[0], 0.75 + (TM.CONFIG.DELAY_MOD_SAMPLES * 2) / 44100, 1e-9),
         scheduled.length ? scheduled[0].toFixed(6) : '—');
+
+  // ── 5.7 乐谱的编解码与存档（storage.js）─────────────────
+  var S = TM.Store;
+
+  var ge = new TM.Grid();
+  var code0 = S.encode(ge);
+  check('空谱子也能编码', /^CM1\.16x16\.[A-Za-z0-9\-_]+$/.test(code0),
+        code0.slice(0, 20) + '…（' + code0.length + ' 字符）');
+  check('代码是 URL 安全的（不含 + / =）', !/[+/=]/.test(code0));
+  check('16×16 的代码长度 = 43（32 字节 → base64url）',
+        code0.split('.')[2].length === 43, code0.split('.')[2].length + '');
+
+  var gs1 = new TM.Grid();
+  gs1.set(0, 0, true);
+  gs1.set(15, 15, true);
+  gs1.set(7, 3, true);
+  var d1 = S.decode(S.encode(gs1));
+  check('编解码往返：尺寸一致', d1.ok && d1.cols === 16 && d1.rows === 16);
+  check('编解码往返：逐位一致', d1.ok && (function () {
+    var back = S.unpack(d1);
+    for (var i = 0; i < gs1.cells.length; i++) if (back[i] !== gs1.cells[i]) return false;
+    return true;
+  })());
+
+  var gs2 = new TM.Grid();
+  gs2.replaceAll(new Uint8Array(256).fill(1));
+  var d2 = S.decode(S.encode(gs2));
+  check('全满谱子往返后仍是全满',
+        d2.ok && S.unpack(d2).every(function (v) { return v === 1; }));
+
+  check('拒绝乱码', S.decode('hello world').ok === false);
+  check('拒绝版本不兼容（不是静默按 v1 解）',
+        S.decode('CM9.16x16.AAAA').ok === false &&
+        /版本/.test(S.decode('CM9.16x16.AAAA').error));
+  check('拒绝长度与尺寸不符',
+        S.decode('CM1.16x16.' + 'A'.repeat(10)).ok === false);
+
+  var gs3 = new TM.Grid();
+  var emits = 0;
+  gs3.onChange(function () { emits++; });
+  var rr = S.applyCode(gs3, S.encode(gs1));
+  check('applyCode 成功', rr.ok === true);
+  check('applyCode 只发一次变更事件（不是逐格 emit）', emits === 1, '发了 ' + emits + ' 次');
+  check('applyCode 后内容逐格一致',
+        gs3.get(0, 0) && gs3.get(15, 15) && gs3.get(7, 3) && gs3.count() === 3);
+
+  var gs4 = new TM.Grid({ cols: 8, rows: 8 });
+  var mismatch = S.applyCode(gs4, S.encode(gs1));
+  check('尺寸不匹配时拒绝载入（不静默截断）',
+        mismatch.ok === false && gs4.count() === 0 && /不匹配/.test(mismatch.error),
+        mismatch.error || '');
+  check('replaceAll 长度不符时返回 false 且不改动',
+        gs4.replaceAll(new Uint8Array(3)) === false && gs4.count() === 0);
+
+  // localStorage 往返（无头 Chrome 下若被禁用，这几条会自动跳过）
+  var lsOK = S.available();
+  if (lsOK) {
+    var gs5 = new TM.Grid();
+    gs5.set(2, 2, true); gs5.set(9, 14, true);
+    check('save 写进 localStorage', S.save(gs5) === true);
+    var raw = S.load(16, 16);
+    check('load 取回的正是同一段代码', raw === S.encode(gs5));
+    var gs6 = new TM.Grid();
+    check('从存档还原出同样的谱子',
+          S.applyCode(gs6, raw).ok && gs6.count() === 2 &&
+          gs6.get(2, 2) && gs6.get(9, 14));
+    check('存储键按面板尺寸分开',
+          S.storageKey(16, 16) === 'cubemusic.pattern.16x16' &&
+          S.storageKey(64, 36) === 'cubemusic.pattern.64x36',
+          S.storageKey(64, 36));
+    check('两个面板的存档互不覆盖', (function () {
+      var other = new TM.Grid({ cols: 64, rows: 36 });
+      other.set(63, 35, true);
+      S.save(other);
+      var keep = S.load(16, 16) === raw && S.load(64, 36) === S.encode(other);
+      S.remove(64, 36);
+      return keep;
+    })());
+    S.remove(16, 16);
+    check('remove 清掉存档', S.load(16, 16) === null && S.load(64, 36) === null);
+  } else {
+    info('跳过 localStorage 相关断言（当前环境不可用）');
+  }
 
   // ── 6. 离线音频渲染 ────────────────────────────────────
   // 只渲染一次：60 BPM 下延迟 = 3 步 = 750 ms，回声与干声在时间上完全分开，

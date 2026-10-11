@@ -46,7 +46,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 71 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 91 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 41 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 57 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 61 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 79 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -86,19 +86,20 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ## 3. 文件地图
 
 ```
-index.html            原版入口（16×16）。脚本顺序：constants → grid → audio → sequencer → renderer → app
-large.html            大面板入口（32×64）。比上面多一层 large-config，见 §12
+index.html            原版入口（16×16）。脚本顺序：constants → grid → audio → sequencer → renderer → storage → app
+large.html            大面板入口（36×64，半音阶）。比上面多一层 large-config，见 §12
 style.css             视觉风格（纯黑底 + 浅灰方块）。.stage-wide 是大面板的宽版布局
 src/constants.js      全部常量、音阶表、包络曲线 + TM.RUNTIME（运行时维度）。改动前先读 §5
-src/large-config.js   只被 large.html 加载：把 TM.RUNTIME 覆盖成 32 行 × 64 列。见 §12
+src/large-config.js   只被 large.html 加载：把 TM.RUNTIME 覆盖成 36 行 × 64 列。见 §12
 src/grid.js           音符网格（对应 toneMatrix::Pattern）。维度取自 TM.RUNTIME
 src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 / 速度联动
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
+src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
-test/selftest.html    71 项断言（含离线音频渲染、波场稳定性、描边不变式）
-test/interaction.html 41 项页面级交互断言（iframe + ?debug=1）
-test/large.html       61 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/selftest.html    91 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码）
+test/interaction.html 57 项页面级交互断言（iframe + ?debug=1）
+test/large.html       79 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -202,6 +203,7 @@ test/diag.html        频率/节点诊断
 | `#btn-clear` | 清空 |
 | `#btn-wave` | 开关涟漪辉光 |
 | `#btn-playhead` | 开关播放列高亮 |
+| `#btn-share` | 展开 / 收起「谱子」面板（导出代码 / 粘贴载入），见 §13 |
 
 - **`pointerdown` 必须判断 `e.button !== 0` 就返回。** 浏览器在右键时会**先**派发
   `pointerdown(button=2)` 再派发 `contextmenu`；不判断按键的话，右键会先把格子翻转，
@@ -249,6 +251,9 @@ test/diag.html        频率/节点诊断
 - 正文写清「问题 → 根因 → 改动 → 实测数据」。视觉/音频类改动**必须附量化证据**
   （探针读数、离线渲染测量值、测试通过数），不要只说"看起来好了"。
 - 每次提交前跑通 §2 的回归。
+- **改完即提交并推送**：仓库所有者要求「每次更改完之后，自动 commit 然后 push」，
+  不需要逐次征求确认。除非用户明确说「先别提交」「这次不要推」。
+  推完顺手确认一下 Actions（`gh run watch`），部署失败要立刻报告。
 
 ## 10. 调试技巧
 
@@ -313,12 +318,12 @@ test/diag.html        频率/节点诊断
 | | 原版 `index.html` | 大面板 `large.html` |
 |---|---|---|
 | 列（时间步） | 16 | 64 |
-| 行（音高） | 16 | 32 |
-| 音阶 | D 大调**五声**（1 2 3 5 6） | D 大调**七声**（补上第 4 音 G、第 7 音 C#） |
-| 音域 | A6 → A3（3 个八度） | E7 → B2（约 4.4 个八度） |
+| 行（音高） | 16 | 36 |
+| 音阶 | D 大调**五声**（1 2 3 5 6） | **半音阶**（相邻行差 1 个半音，像吉他每格一品） |
+| 音域 | A6 → A3（3 个八度） | A6 → A#3（35 个半音，将近 3 个八度） |
 | 一圈 | 1 小节 = 2 s @120BPM | 4 小节 = 8 s @120BPM |
 | 格子 / 方块 | 32 px / 26 px | **32 px / 26 px（与原版逐像素同尺寸）** |
-| 画布 | 512×512 | 2048×1024（1:1 上屏，装不下就在框内滚动） |
+| 画布 | 512×512 | 2048×1152（1:1 上屏，装不下就在框内滚动） |
 | 配置来源 | `CONFIG`（缺省） | `src/large-config.js` 覆盖 `TM.RUNTIME` |
 
 **步长不变**：`RESOLUTION` 两种规格都是 16 步/小节，所以大面板变长的是**段落**，
@@ -330,11 +335,17 @@ test/diag.html        频率/节点诊断
 `CONFIG.NOTES`** —— `test/large.html` 拿这条校验生成器本身没写错，改生成器时
 先看这条有没有红。
 
-**大面板的音表是原版五声的超集**（七声 ⊃ 五声），但**行号不同**，
-所以两版之间**没有**「同一份图案平移对应」的关系了 —— 早期版本有，补上 4、7 音
-之后就没有了。`test/large.html` 断言的是「原版每个音仍在新表里」。行 0 = 原版
-最高音 + 7 个半音（`CONFIG.NOTES[0] + 7` = E7），这样 32 行的中段与原版 16 行的
-中段基本对齐，整块棋盘仍偏中音区。
+**两版之间没有「行号平移对应」关系** —— 音阶完全不同，同一份图案搬过来音高会变。
+行 0 取原版最高音 A6（`CONFIG.NOTES[0]`），36 行往下铺到 A#3，所以整块棋盘的
+音域与原版基本重合，只是把中间的音**填满了**。
+
+> 注意 36 行铺 96..61，原版 16 个音里有 15 个落在表内，**只有最低的 A3(60)
+> 差一个半音** —— 原版音域 A6→A3 是 37 个半音，36 行装不下。`test/large.html`
+> 有一条断言把这条边界钉死。
+
+`SCALES` 里三张音阶都留着：`pentatonic`（原版规格，用来校验生成器）、
+`major`（D 大调七声，上一版大面板用过）、`chromatic`（当前大面板）。
+换音阶只要改 `large-config.js` 里的一个参数，行数与音域都不用动。
 
 ### 改这里时容易踩的坑
 
@@ -374,11 +385,13 @@ test/diag.html        频率/节点诊断
 
 | 视口 | 滚动框 | 横向可见 | 纵向可见 |
 |---|---|---|---|
-| 1512×747（14" 笔记本） | 1480×493 | 72% | 48% |
-| 1512×982（最大化） | 1480×728 | 72% | 71% |
-| 2560×1300（2K） | 2048×1024 | **100%** | **100%** |
+| 1512×747（14" 笔记本） | 1480×493 | 72% | 43% |
+| 1512×982（最大化） | 1480×728 | 72% | 63% |
+| 2560×1300（2K） | 2048×1046 | **100%** | 91% |
+| 2560×1450（2K 足够高） | 2048×1152 | **100%** | **100%** |
 
-笔记本上纵向只能看到一半左右，这是 32 行 × 26px 的方块尺寸决定的，**不是 bug**。
+笔记本上纵向只能看到一半左右，这是 36 行 × 26px 的方块尺寸决定的，**不是 bug**。
+想整块可见又不想滚，只有「减行数」或「缩小方块」两条路，都改变手感，别擅自选。
 
 > 曾经把格子减半到 16px 想塞进屏幕，但按比例算出的 `inset` 是 1.5，在 1x 屏上
 > 方块边界落在半像素、被抗锯齿糊出灰边（实测过渡值 25 / 119，而整数内缩下灰度只
@@ -387,12 +400,12 @@ test/diag.html        频率/节点诊断
 
 ### 参数怎么定的（都有实测依据）
 
-- **波纹层刻意只有 1024×512**（画布是 2048×1024）。它本来就模糊，按画布分辨率渲染
+- **波纹层刻意只有 1024×576**（画布是 2048×1152）。它本来就模糊，按画布分辨率渲染
   纯属浪费。`blurWave = 6`：这里一个波纹格 = 1024/64 = 16px，原版是 512/16 = 32px、
   模糊 12，取 `16 × 12/32 = 6` 两版的涟漪柔和程度才一致。
-- **每帧开销（无头 Chrome / dpr2 / 硬件 GPU）：`5.76 ms → 19.85 ms`（3.45×）**，
-  已经越过 60fps 的 16.7 ms 预算，涟漪大约掉到 30fps。逐项：波场 0.87 → 1.84 ms、
-  合成 4.89 → 18.02 ms、拖动 0.99 → 1.61 ms（点格子本身仍然跟手）。
+- **每帧开销（无头 Chrome / dpr2 / 硬件 GPU）：`5.00 ms → 22.11 ms`（4.43×）**，
+  已经越过 60fps 的 16.7 ms 预算，涟漪大约掉到 30fps。逐项：波场 0.85 → 1.66 ms、
+  合成 4.15 → 20.45 ms、拖动 0.58 → 1.53 ms（点格子本身仍然跟手）。
   合成的开销 ∝ 画布面积，是固有代价（格子层必须按设备分辨率 1:1 上屏，见 §6）。
   要再降只能改渲染模型（例如把辉光拆成独立的 `mix-blend-mode` 图层、
   不再每帧整块重合成），那是独立的一件事，别顺手做。
@@ -400,3 +413,44 @@ test/diag.html        频率/节点诊断
 **加新规格面板的步骤**：写一个 `src/xxx-config.js` 覆盖 `TM.RUNTIME`（含
 `notes`），照 `large.html` 复制一份页面并把脚本插在 `constants.js` 之后，
 然后 **记得同步 `deploy.yml` 的 `cp -R` 行**。
+
+## 13. 乐谱的保存与导入导出
+
+`src/storage.js` 负责两件事：**自动保存**（localStorage）与**导入导出**（一段自包含代码）。
+
+### 格式
+
+```
+CM1.<cols>x<rows>.<base64url>
+```
+
+- 每个格子 1 bit，按 grid 的扁平索引（`列 × 行数 + 行`）**小端打包**，再转 base64url
+  （`+`→`-`、`/`→`_`、去掉尾部 `=`）。**必须用 base64url 而不是普通 base64** ——
+  整段代码要能直接塞进 URL 的 hash 当分享链接，`+` 在里面会被解析成空格。
+- 长度：16×16 → 43 字符；64×36 → 384 字符。
+- 前缀里的版本号 `CM1`：格式一改就升到 `CM2`，旧代码会被**明确拒绝**并提示版本不兼容，
+  而不是按新格式解出一堆错音。
+
+### 约定
+
+- **存储键按面板尺寸分开**：`cubemusic.pattern.16x16` / `cubemusic.pattern.64x36`。
+  两版各存各的，互不覆盖（`test/selftest.html` 有断言守着）。
+- **载入优先级：URL hash > localStorage**。hash 用过一次就 `replaceState` 清掉 ——
+  否则那条旧链接会在每次刷新时盖住之后自动保存的新内容，用户改完一刷新发现被打回原样。
+- 自动保存是**防抖 300ms 静默**写，另外挂 `pagehide` 补一次（防抖窗口内关页面会丢）。
+  务必在 `restoreScore()` **之后**再挂 `onChange` 钩子，否则载入本身会立刻回写一遍。
+- 尺寸不匹配的代码**拒绝载入**，不静默截断：16×16 的谱子载进 64×36 没有合理对应关系。
+- `Grid.prototype.replaceAll` 只发**一次**变更事件（走渲染器整层重绘）。逐格 `set`
+  会触发 2304 次局部重绘和 2304 个波场种子，载入会明显卡一下。
+- 所有 localStorage 调用都包在 try 里（隐私模式 / 配额满 / 被策略禁用不该把页面搞崩）。
+
+### 踩过的坑
+
+- **「复制」的反馈不能挂在 clipboard promise 上。** 无用户手势、无权限或 `file://` 下
+  `clipboard.writeText` 可能既不 resolve 也不 reject（实测如此），按钮点了完全没反应。
+  正确做法是**先同步**给出确定反馈（「已选中，按 ⌘C」），写入成功再升级文案。
+- `.ctl-row` 自带 `display: flex`，会**盖掉** `[hidden]` 的 `display: none`
+  （作者样式优先于 UA 样式表）—— 隐藏面板必须显式写 `.ctl-row[hidden]`。
+- 页面级测试要求「初始网格为空」，而乐谱现在会自动恢复。测试页必须在 **iframe 开始
+  加载之前** 清掉 localStorage 的对应键（`test/interaction.html`、`test/large.html`
+  里都有这段，位置不能挪到 iframe 后面）。

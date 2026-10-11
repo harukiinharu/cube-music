@@ -33,6 +33,8 @@
       <span class="ctl-sep" aria-hidden="true"></span>
       <button id="btn-wave" class="btn toggle" aria-pressed="true">涟漪</button>
       <button id="btn-playhead" class="btn toggle" aria-pressed="true">播放列</button>
+      <span class="ctl-sep" aria-hidden="true"></span>
+      <button id="btn-share" class="btn" aria-expanded="false" aria-controls="share-row">谱子</button>
     </div>
 
     <!-- 第二行：参数。两行对齐成一列：标签 / 滑块 / 数值 -->
@@ -45,11 +47,22 @@
       <input id="volume" class="f-range" type="range" min="0" max="100" step="1" value="85">
       <output id="volume-out" class="f-value" for="volume">85%</output>
     </div>
+
+    <!-- 乐谱的导出 / 载入面板。默认收起，点「谱子」展开。 -->
+    <div class="ctl-row ctl-share" id="share-row" hidden>
+      <textarea id="share-code" class="share-code" rows="2" spellcheck="false"
+                autocomplete="off" aria-label="乐谱代码"></textarea>
+      <div class="share-acts">
+        <button id="btn-share-copy" class="btn">复制</button>
+        <button id="btn-share-load" class="btn">载入</button>
+      </div>
+      <p id="share-status" class="share-status" role="status"></p>
+    </div>
   </div>
 
   <footer class="foot">
     <p><strong>点击 / 拖动</strong> 开关方格　·　<strong>右键</strong> 试听　·　<strong>空格</strong> 暂停 / 继续</p>
-    <p class="switch"><a href="large.html">试试大面板 32 × 64 →</a></p>
+    <p class="switch">改动会自动存在本机浏览器里　·　<a href="large.html">试试大面板 64 × 36 →</a></p>
     <!-- <p class="meta">16×16 五声音阶音序器　·　音阶 D 大调五声（A–B–D–E–F#，A3 → A6）　·　正弦 + 二次衰减包络 + 3 步反馈延迟</p> -->
   </footer>
 </main>
@@ -59,6 +72,7 @@
 <script src="src/audio.js"></script>
 <script src="src/sequencer.js"></script>
 <script src="src/renderer.js"></script>
+<script src="src/storage.js"></script>
 <script src="src/app.js"></script>
 </body>
 </html>
