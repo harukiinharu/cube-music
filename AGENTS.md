@@ -46,7 +46,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 96 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 104 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 58 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 59 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 79 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 85 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -97,9 +97,9 @@ src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
-test/selftest.html    96 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
-test/interaction.html 58 项页面级交互断言（iframe + ?debug=1）
-test/large.html       79 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/selftest.html    104 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
+test/interaction.html 59 项页面级交互断言（iframe + ?debug=1）
+test/large.html       85 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -443,32 +443,74 @@ A#3，所以整块棋盘把原版的音域整个包住了。
 
 `src/storage.js` 负责两件事：**自动保存**（localStorage）与**导入导出**（一段自包含代码）。
 
-### 格式
+### 格式：CM2（当前）
 
 ```
-CM1.<cols>x<rows>.<base64url>
+CM2.<base64url>
 ```
 
-- 每个格子 1 bit，按 grid 的扁平索引（`列 × 行数 + 行`）**小端打包**，再转 base64url
-  （`+`→`-`、`/`→`_`、去掉尾部 `=`）。**必须用 base64url 而不是普通 base64** ——
-  整段代码要能直接塞进 URL 的 hash 当分享链接，`+` 在里面会被解析成空格。
-- 长度：16×16 → 43 字符；64×48 → 512 字符。
-- 前缀里的版本号 `CM1`：格式一改就升到 `CM2`，旧代码会被**明确拒绝**并提示版本不兼容，
-  而不是按新格式解出一堆错音。
+正文二进制（base64url 编码，`+`→`-`、`/`→`_`、去掉尾部 `=`）：
+
+```
+[0]      enc：0 = 稠密、1 = 稀疏
+[varint] base   本曲最低音高
+[varint] span   最高音 - 最低音
+[varint] cols   源网格的列数
+[body]   稠密：cols × (span+1) 位的位图（列主序，LSB 优先）
+         稀疏：逐列 { 列号增量, 个数, 各音高偏移(CSC) }
+```
+
+**必须用 base64url 而不是普通 base64** —— 整段代码要能直接塞进 URL 的 hash 当分享
+链接，普通 base64 里的 `+` 在 URL 里会被解析成空格。
+
+### 为什么按音高存，而不是按行号
+
+直觉上「稀疏坐标 + CSC」存 (列, **行号**) 就够了，但行号是**相对**的：
+
+- 大面板加一个八度，行号整体平移（A6 顶 → A7 顶，旧行 0 变成新行 12）；
+- 换音阶（五声 ↔ 半音阶）会重新定义每一行是什么音。
+
+所以按行号存的谱子一改规格就整体跑调。CM2 存的是**音高本身**（与 `CONFIG.NOTES`
+同一套编号，72 = A）。载入时：
+
+- 目标面板有那个音高 → 精确落到对应行；
+- 没有 → **就近对齐**到最接近的一条行（同面板载入时全部精确命中，不会触发）；
+- 列号超出目标宽度 → 丢弃。
+
+`applyCode` 会返回 `placed / snapped / dropped` 三个计数，UI 如实显示（`describeLoad`）。
+
+### 容量（实测，大面板 64×48；旧 CM1 固定 512 字符）
+
+| 音符数 | 1 | 10 | 40 | 64 | 192 |
+|---|---|---|---|---|---|
+| 代码长度 | 14 | 50 | 148 | 266 | 436 |
+
+编码器**同时算出稠密与稀疏两种正文、挑短的那个**（`enc` 标记），所以密铺到满格
+这种极端情况也不会比旧格式更长。解码对列数 / 跨度 / 正文长度都做了上限校验，
+畸形代码会明确报错而不是静默少读几个音。
+
+### 向后兼容
+
+- `CM1` 是旧的稠密位图（`CM1.<cols>x<rows>.<base64url>`），**尺寸耦合**。
+  仍然能解，但只认尺寸完全一致的网格 —— 它的行号 ↔ 音高对应关系写在当时的面板配置里，
+  现在重建不出来，所以载到大面板会明确拒绝并说明原因。
+- 存储键从 `cubemusic.pattern.<cols>x<rows>` 换成了 `cubemusic.score.<面板 id>`。
+  `load()` 在新键读不到时会**退回旧键一次**，`applyCode` 成功后下次自动保存就写到新键，
+  迁移自然完成（旧键不删，保留兜底）。
 
 ### 约定
 
-- **存储键按面板尺寸分开**：`cubemusic.pattern.16x16` / `cubemusic.pattern.64x48`。
-  两版各存各的，互不覆盖（`test/selftest.html` 有断言守着）。
-  **注意**：改行数/列数会换掉存储键，用户旧档不会自动迁移 —— 这是有意的，
-  但要在提交信息里说明。
+- **存储键按面板身份、故意不含尺寸**：`cubemusic.score.small` / `cubemusic.score.large`。
+  以后再加/减八度，键不变，用户存在本机的那份谱子自动接着用 —— 这正是 CM2 要解决的问题。
+  面板 id 来自 `TM.RUNTIME.id`（`constants.js` 里缺省 `small`，`large-config.js` 设 `large`）。
 - **载入优先级：URL hash > localStorage**。hash 用过一次就 `replaceState` 清掉 ——
   否则那条旧链接会在每次刷新时盖住之后自动保存的新内容，用户改完一刷新发现被打回原样。
 - 自动保存是**防抖 300ms 静默**写，另外挂 `pagehide` 补一次（防抖窗口内关页面会丢）。
   务必在 `restoreScore()` **之后**再挂 `onChange` 钩子，否则载入本身会立刻回写一遍。
-- 尺寸不匹配的代码**拒绝载入**，不静默截断：16×16 的谱子载进 64×48 没有合理对应关系。
+- `encode` / `applyCode` 都要带**行 → 音高表**（缺省取 `TM.RUNTIME.notes`）。
+  这层耦合是刻意的：音高是这段数据唯一稳定的坐标。
 - `Grid.prototype.replaceAll` 只发**一次**变更事件（走渲染器整层重绘）。逐格 `set`
-  会触发 2304 次局部重绘和 2304 个波场种子，载入会明显卡一下。
+  会触发 3000+ 次局部重绘和同样多的波场种子，载入会明显卡一下。
 - 所有 localStorage 调用都包在 try 里（隐私模式 / 配额满 / 被策略禁用不该把页面搞崩）。
 
 ### 踩过的坑
@@ -476,6 +518,13 @@ CM1.<cols>x<rows>.<base64url>
 - **「复制」的反馈不能挂在 clipboard promise 上。** 无用户手势、无权限或 `file://` 下
   `clipboard.writeText` 可能既不 resolve 也不 reject（实测如此），按钮点了完全没反应。
   正确做法是**先同步**给出确定反馈（「已选中，按 ⌘C」），写入成功再升级文案。
+- **`Array.prototype.concat` 不会展平 `Uint8Array`。** `[a].concat(head, body)` 里
+  `body` 是个 TypedArray 时会被当成**一个元素**塞进去，结果是只有走普通数组的那条
+  分支（稀疏编码）看起来正常，稠密分支静默产出垃圾。要用 `Uint8Array.set()` 拼。
+  这个 bug 是被「满格谱子往返」那条断言抓出来的 —— 稀疏路径它测不到。
+- **写两个编码分支，就必须有分别覆盖两条分支的断言。** 上面那个 bug 活过了整套
+  「往返一致」测试，因为典型谱子全都走稀疏分支。测试里要**显式**构造一个密铺到
+  满格的谱子，逼编码器切到稠密分支。
 - `.ctl-row` 自带 `display: flex`，会**盖掉** `[hidden]` 的 `display: none`
   （作者样式优先于 UA 样式表）—— 隐藏面板必须显式写 `.ctl-row[hidden]`。
 - 页面级测试要求「初始网格为空」，而乐谱现在会自动恢复。测试页必须在 **iframe 开始

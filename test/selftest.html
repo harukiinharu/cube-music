@@ -426,84 +426,159 @@
         scheduled.length ? scheduled[0].toFixed(6) : '—');
 
   // ── 5.7 乐谱的编解码与存档（storage.js）─────────────────
+  // CM2 按**音高**存（不是行号），于是换面板 / 加减八度 / 换音阶都还能用。
   var S = TM.Store;
+  var N16 = CFG.NOTES;                                     // 本页 16 行的音高表
+  var N48 = TM.buildScaleTable(48, CFG.NOTES[0] + 12, TM.SCALES.chromatic);
 
-  var ge = new TM.Grid();
-  var code0 = S.encode(ge);
-  check('空谱子也能编码', /^CM1\.16x16\.[A-Za-z0-9\-_]+$/.test(code0),
-        code0.slice(0, 20) + '…（' + code0.length + ' 字符）');
+  var code0 = S.encode(new TM.Grid(), N16);
+  check('空谱子也能编码', /^CM2\.[A-Za-z0-9\-_]+$/.test(code0),
+        code0 + '（' + code0.length + ' 字符）');
   check('代码是 URL 安全的（不含 + / =）', !/[+/=]/.test(code0));
-  check('16×16 的代码长度 = 43（32 字节 → base64url）',
-        code0.split('.')[2].length === 43, code0.split('.')[2].length + '');
 
-  var gs1 = new TM.Grid();
-  gs1.set(0, 0, true);
-  gs1.set(15, 15, true);
-  gs1.set(7, 3, true);
-  var d1 = S.decode(S.encode(gs1));
-  check('编解码往返：尺寸一致', d1.ok && d1.cols === 16 && d1.rows === 16);
-  check('编解码往返：逐位一致', d1.ok && (function () {
-    var back = S.unpack(d1);
-    for (var i = 0; i < gs1.cells.length; i++) if (back[i] !== gs1.cells[i]) return false;
-    return true;
+  var ga = new TM.Grid();
+  ga.set(0, 0, true);        // 行 0 → 音高 96
+  ga.set(15, 15, true);      // 行 15 → 音高 60
+  ga.set(7, 3, true);        // 行 3 → 音高 89
+  var codeA = S.encode(ga, N16);
+  var dA = S.decode(codeA);
+  check('CM2 解码成功', dA.ok && dA.version === 2, dA.error || '');
+  check('CM2 记的是音高而不是行号', dA.ok && (function () {
+    var got = dA.notes.slice().sort(function (x, y) {
+      return x.col - y.col || x.note - y.note;
+    });
+    return got.length === 3 &&
+           got[0].col === 0 && got[0].note === 96 &&
+           got[1].col === 7 && got[1].note === 89 &&
+           got[2].col === 15 && got[2].note === 60;
+  })(), dA.ok ? JSON.stringify(dA.notes) : '');
+
+  // ── 跨尺寸：这一轮要解决的核心问题 ──────────────────────
+  var back16 = new TM.Grid();
+  var r16 = S.applyCode(back16, codeA, N16);
+  check('同面板往返：逐位一致',
+        r16.ok && r16.placed === 3 && r16.dropped === 0 && r16.snapped === 0 &&
+        back16.get(0, 0) && back16.get(15, 15) && back16.get(7, 3) &&
+        back16.count() === 3);
+
+  // 同一段代码载进「64×48 半音阶」面板：音高按音高落位，行号自然跟着变。
+  // 只有 16×16 最低的 A3(60) 会就近对齐 —— 48 行表底部是 A#3(61)，差一个半音。
+  var big48 = new TM.Grid({ cols: 64, rows: 48 });
+  var r48 = S.applyCode(big48, codeA, N48);
+  check('16×16 的代码能直接载进 64×48 面板（音高不变，只有 A3 差半音需对齐）',
+        r48.ok && r48.placed === 3 && r48.dropped === 0 && r48.snapped === 1,
+        r48.ok ? (r48.placed + ' 个音符 / 对齐 ' + r48.snapped) : r48.error);
+  check('落位在正确的**新行号**上（行号变了，音高没变）',
+        big48.get(0, N48.indexOf(96)) && big48.get(7, N48.indexOf(89)) &&
+        big48.get(15, N48.indexOf(61)),
+        '音高 96：16 行表里第 ' + N16.indexOf(96) + ' 行 → 48 行表里第 ' +
+        N48.indexOf(96) + ' 行；音高 60 不在 48 行表里，对齐到 61（第 ' +
+        N48.indexOf(61) + ' 行）');
+
+  // 反向 + 换音阶：48 行半音阶里有些音高不在 16 行五声表里，要就近对齐
+  var src48 = new TM.Grid({ cols: 64, rows: 48 });
+  src48.set(0, 12, true);    // 行 12 → 音高 96，16×16 里正好有
+  src48.set(1, 13, true);    // 行 13 → 音高 95，16×16 里没有 → 就近取整到 96
+  var narrow16 = new TM.Grid();
+  var rNear = S.applyCode(narrow16, S.encode(src48, N48), N16);
+  check('跨音阶载入：表内音高精确落位、表外就近对齐',
+        rNear.ok && rNear.placed === 2 && rNear.snapped === 1 && rNear.dropped === 0,
+        'placed ' + rNear.placed + ' / snapped ' + rNear.snapped +
+        ' / dropped ' + rNear.dropped);
+
+  // 列超出目标宽度要丢弃，不能折行或静默错位
+  var wide = new TM.Grid({ cols: 64, rows: 48 });
+  wide.set(40, 20, true);
+  var rDrop = S.applyCode(new TM.Grid(), S.encode(wide, N48), N16);
+  check('列号超出目标宽度时丢弃（不折行、不静默错位）',
+        rDrop.ok && rDrop.dropped === 1 && rDrop.placed === 0,
+        'placed ' + rDrop.placed + ' / dropped ' + rDrop.dropped);
+
+  // 稀疏压缩的收益：典型谱子只点亮很少的格子，不必把整张画布都编进去
+  var gFull = new TM.Grid();
+  gFull.replaceAll(new Uint8Array(256).fill(1));
+  var gOne = new TM.Grid();
+  gOne.set(0, 0, true);
+  check('稀疏压缩：只点一个音符时远短于旧格式的固定长度',
+        S.encode(gOne, N16).length < 20,
+        S.encode(gOne, N16).length + ' 字符（旧 CM1 固定 43）');
+  // 密铺到满格时编码器自动改走稠密分支（否则每格一对坐标会膨胀到 280+ 字节）
+  check('满格时代码仍在合理范围（自动挑了稠密编码）',
+        S.encode(gFull, N16).length < 200, S.encode(gFull, N16).length + ' 字符');
+  check('满格谱子往返后仍是满格', (function () {
+    var g = new TM.Grid();
+    return S.applyCode(g, S.encode(gFull, N16), N16).ok && g.count() === 256;
   })());
 
-  var gs2 = new TM.Grid();
-  gs2.replaceAll(new Uint8Array(256).fill(1));
-  var d2 = S.decode(S.encode(gs2));
-  check('全满谱子往返后仍是全满',
-        d2.ok && S.unpack(d2).every(function (v) { return v === 1; }));
+  // ── 向后兼容：仍然认得旧格式 CM1 ───────────────────────
+  function cm1Code(setter) {
+    var g = new TM.Grid();
+    setter(g);
+    var b = new Uint8Array(32);
+    for (var i = 0; i < 256; i++) if (g.cells[i]) b[i >> 3] |= (1 << (i & 7));
+    var s = '';
+    for (i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return 'CM1.16x16.' + btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  var oldCode = cm1Code(function (g) { g.set(0, 0, true); g.set(5, 9, true); });
+  var gOld = new TM.Grid();
+  var rOld = S.applyCode(gOld, oldCode, N16);
+  check('仍能载入旧格式 CM1（同尺寸）',
+        rOld.ok && rOld.legacy === true && rOld.placed === 2 &&
+        gOld.get(0, 0) && gOld.get(5, 9));
+  check('CM1 载到大面板时明确拒绝并说明原因（行号对应关系已重建不出来）',
+        (function () {
+          var r = S.applyCode(new TM.Grid({ cols: 64, rows: 48 }), oldCode, N48);
+          return r.ok === false && /CM1/.test(r.error);
+        })());
 
+  // ── 坏输入 ─────────────────────────────────────────────
   check('拒绝乱码', S.decode('hello world').ok === false);
-  check('拒绝版本不兼容（不是静默按 v1 解）',
-        S.decode('CM9.16x16.AAAA').ok === false &&
-        /版本/.test(S.decode('CM9.16x16.AAAA').error));
-  check('拒绝长度与尺寸不符',
-        S.decode('CM1.16x16.' + 'A'.repeat(10)).ok === false);
+  check('拒绝未知版本前缀', S.decode('CM9.xxx').ok === false);
+  check('拒绝坏的 base64 正文', S.decode('CM2.!!!').ok === false);
+  check('拒绝被截断的正文（长度对不上就报错，不静默少读几个音）',
+        (function () {
+          var good = S.encode(gFull, N16);
+          return S.decode(good.slice(0, good.length - 4)).ok === false;
+        })());
 
-  var gs3 = new TM.Grid();
+  // ── 落位只发一次事件 ───────────────────────────────────
+  var gEv = new TM.Grid();
   var emits = 0;
-  gs3.onChange(function () { emits++; });
-  var rr = S.applyCode(gs3, S.encode(gs1));
-  check('applyCode 成功', rr.ok === true);
+  gEv.onChange(function () { emits++; });
+  check('applyCode 成功', S.applyCode(gEv, codeA, N16).ok === true);
   check('applyCode 只发一次变更事件（不是逐格 emit）', emits === 1, '发了 ' + emits + ' 次');
-  check('applyCode 后内容逐格一致',
-        gs3.get(0, 0) && gs3.get(15, 15) && gs3.get(7, 3) && gs3.count() === 3);
-
-  var gs4 = new TM.Grid({ cols: 8, rows: 8 });
-  var mismatch = S.applyCode(gs4, S.encode(gs1));
-  check('尺寸不匹配时拒绝载入（不静默截断）',
-        mismatch.ok === false && gs4.count() === 0 && /不匹配/.test(mismatch.error),
-        mismatch.error || '');
   check('replaceAll 长度不符时返回 false 且不改动',
-        gs4.replaceAll(new Uint8Array(3)) === false && gs4.count() === 0);
+        gEv.replaceAll(new Uint8Array(3)) === false && gEv.count() === 3);
 
-  // localStorage 往返（无头 Chrome 下若被禁用，这几条会自动跳过）
+  // ── localStorage（无头 Chrome 下若被禁用，这几条会自动跳过）──
   var lsOK = S.available();
   if (lsOK) {
+    check('存储键按面板身份、**不含尺寸**（加减八度后存档还能接着用）',
+          S.storageKey() === 'cubemusic.score.small' &&
+          S.panelId() === 'small', S.storageKey());
+    check('保留旧尺寸键的兜底入口',
+          S.legacyKey(16, 16) === 'cubemusic.pattern.16x16', S.legacyKey(64, 48));
+
     var gs5 = new TM.Grid();
     gs5.set(2, 2, true); gs5.set(9, 14, true);
-    check('save 写进 localStorage', S.save(gs5) === true);
-    var raw = S.load(16, 16);
-    check('load 取回的正是同一段代码', raw === S.encode(gs5));
+    check('save 写进 localStorage', S.save(gs5, N16) === true);
+    var raw = S.load(gs5);
+    check('load 取回的正是同一段代码', raw === S.encode(gs5, N16));
     var gs6 = new TM.Grid();
     check('从存档还原出同样的谱子',
-          S.applyCode(gs6, raw).ok && gs6.count() === 2 &&
+          S.applyCode(gs6, raw, N16).ok && gs6.count() === 2 &&
           gs6.get(2, 2) && gs6.get(9, 14));
-    check('存储键按面板尺寸分开',
-          S.storageKey(16, 16) === 'cubemusic.pattern.16x16' &&
-          S.storageKey(64, 48) === 'cubemusic.pattern.64x48',
-          S.storageKey(64, 36));
-    check('两个面板的存档互不覆盖', (function () {
-      var other = new TM.Grid({ cols: 64, rows: 36 });
-      other.set(63, 35, true);
-      S.save(other);
-      var keep = S.load(16, 16) === raw && S.load(64, 36) === S.encode(other);
-      S.remove(64, 36);
-      return keep;
-    })());
-    S.remove(16, 16);
-    check('remove 清掉存档', S.load(16, 16) === null && S.load(64, 36) === null);
+
+    // 一次性迁移：新键读不到时退回旧尺寸键
+    localStorage.removeItem('cubemusic.score.small');
+    localStorage.setItem('cubemusic.pattern.16x16', oldCode);
+    check('新键读不到时退回旧尺寸键（旧存档因此不会丢）',
+          S.load(gs5) === oldCode, String(S.load(gs5)).slice(0, 24) + '…');
+
+    S.remove();
+    localStorage.removeItem('cubemusic.pattern.16x16');
+    check('remove 清掉存档', S.load(gs5) === null);
   } else {
     info('跳过 localStorage 相关断言（当前环境不可用）');
   }

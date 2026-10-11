@@ -107,6 +107,7 @@
   // 刻意**不在这里给默认值**：缺省一律回落 CONFIG.*，因为 test/perf.html 会
   // 直接改 CONFIG 做 A/B，把值抄进这里会让它失效。
   var RUNTIME = {
+    id: 'small',            // 面板身份，只用于 localStorage 的键（见 storage.js）
     cols: CONFIG.GRID,      // 时间步数（一圈走多少步）
     rows: CONFIG.GRID,      // 音高行数
     cell: CONFIG.CELL,      // 格子边长（逻辑像素）

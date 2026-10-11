@@ -278,11 +278,19 @@
   function restoreScore() {
     var fromHash = readHashCode();
     if (fromHash) {
-      var r = TM.Store.applyCode(grid, fromHash);
-      if (r.ok) { clearHash(); return; }
+      if (applyScore(fromHash).ok) { clearHash(); return; }
     }
-    var saved = TM.Store.load(grid.cols, grid.rows);
-    if (saved) TM.Store.applyCode(grid, saved);
+    var saved = TM.Store.load(grid);       // 新键优先，读不到会退回旧尺寸键
+    if (saved) applyScore(saved);
+  }
+
+  // 编解码都要带上行→音高的表：CM2 是按音高存的，不是按行号（见 storage.js 文件头）
+  function applyScore(text) {
+    return TM.Store.applyCode(grid, text, RUNTIME.notes);
+  }
+
+  function encodeScore() {
+    return TM.Store.encode(grid, RUNTIME.notes);
   }
 
   function readHashCode() {
@@ -304,7 +312,7 @@
 
   function flushSave() {
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-    TM.Store.save(grid);
+    TM.Store.save(grid, RUNTIME.notes);
   }
 
   function setShareStatus(msg) {
@@ -317,10 +325,10 @@
     shareBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
     if (!show) return;
 
-    shareCode.value = TM.Store.encode(grid);
+    shareCode.value = encodeScore();
     shareCode.select();
     setShareStatus(TM.Store.available()
-      ? '这是当前乐谱。复制发给别人，或把别人的代码粘进来点「载入」。'
+      ? '这是当前乐谱。代码按音高记录，换个面板（加/减八度）也照样能载入。'
       : '当前环境不能自动保存（无痕模式或存储被禁用），请用「复制」手动备份。');
   }
 
@@ -340,11 +348,19 @@
   }
 
   function loadShare() {
-    var r = TM.Store.applyCode(grid, shareCode.value);
+    var r = applyScore(shareCode.value);
     if (!r.ok) { setShareStatus('载入失败：' + r.error); return; }
-    shareCode.value = TM.Store.encode(grid);       // 规整成标准写法
+    shareCode.value = encodeScore();               // 规整成当前面板的标准写法
     shareCode.select();
-    setShareStatus('已载入 ' + grid.count() + ' 个音符');
+    setShareStatus(describeLoad(r));
+  }
+
+  /** 如实告诉用户载入时发生了什么 —— 跨面板载入会有就近对齐和丢弃 */
+  function describeLoad(r) {
+    var s = (r.legacy ? '已载入旧格式乐谱：' : '已载入 ') + r.placed + ' 个音符';
+    if (r.snapped) s += '，其中 ' + r.snapped + ' 个本面板没有该音高，已按音高就近对齐';
+    if (r.dropped) s += '，' + r.dropped + ' 个超出本面板范围被丢弃';
+    return s;
   }
 
   // ── 主循环 ──────────────────────────────────────────────

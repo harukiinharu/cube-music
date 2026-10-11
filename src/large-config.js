@@ -29,6 +29,9 @@
   // 索性连格子尺寸一起沿用原版，这条坑也就不存在了。
   var CELL = TM.CONFIG.CELL;
 
+  // 面板身份。**注意它不带尺寸** —— 存档键是 cubemusic.score.large，
+  // 以后再加/减八度，键不变，用户存在本机的那份谱子会自动接着用。
+  R.id = 'large';
   R.cols = COLS;
   R.rows = ROWS;
   R.cell = CELL;
