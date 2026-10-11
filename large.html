@@ -18,8 +18,17 @@
        整页不动，只有框里滚。框装得下时（屏幕够大）不出滚动条。 -->
   <div class="board-shell">
     <div class="board-frame">
-      <div class="canvas-wrap">
-        <canvas id="matrix" width="2048" height="1536" aria-label="48 × 64 音符矩阵"></canvas>
+      <div class="board-box">
+        <!-- 播放位置标尺：宽度 = 棋盘宽度，跟着棋盘横向滚；纵向吸顶，滚下去也还在 -->
+        <div class="ruler" id="ruler" role="slider" tabindex="0"
+             aria-label="播放位置" aria-valuemin="0" aria-valuemax="63" aria-valuenow="0"
+             title="点或拖动这里移动播放游标">
+          <div class="ruler-fill" id="ruler-fill"></div>
+          <div class="ruler-cursor" id="ruler-cursor"></div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="matrix" width="2048" height="1536" aria-label="48 × 64 音符矩阵"></canvas>
+        </div>
       </div>
     </div>
     <!-- 遮罩放在滚动框**外面**，这样「点击开始」始终在可见区域中央，
@@ -27,8 +36,8 @@
     <div id="overlay" class="overlay">
       <div class="overlay-inner">
         <div class="overlay-mark"></div>
-        <p class="overlay-title">点击开始</p>
-        <p class="overlay-hint">浏览器需要一次交互才允许播放声音</p>
+        <p class="overlay-title">点击启用声音</p>
+        <p class="overlay-hint">之后按空格或点「播放」开始</p>
       </div>
     </div>
   </div>
@@ -36,7 +45,7 @@
   <div class="controls">
     <!-- 第一行：动作 + 显示开关（用竖线分组） -->
     <div class="ctl-row ctl-actions">
-      <button id="btn-toggle" class="btn primary">暂停</button>
+      <button id="btn-toggle" class="btn primary">播放</button>
       <button id="btn-clear" class="btn">清空</button>
       <span class="ctl-sep" aria-hidden="true"></span>
       <button id="btn-wave" class="btn toggle" aria-pressed="true">涟漪</button>

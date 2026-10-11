@@ -384,6 +384,33 @@
         '首排步号 ' + (sres.timeline.length ? sres.timeline[0].step : '—'));
   check('继续后 currentStep 前进到 8', sres.currentStep === 8, sres.currentStep + '');
 
+  // ── 5.56 seek：鼠标拖标尺时用的跳转 ────────────────────
+  // 语义：只改「下一个待排的步」，**不重建已经排进音频时钟的音符**。
+  var fsk = fakeAudio(0);
+  var ssk = new TM.Sequencer(fsk, new TM.Grid());
+  ssk.playing = true;
+  ssk._scheduleStep(2, 5.0);                  // 先往时间轴里塞点**旧记录**
+  ssk.playing = false;
+  check('seek 前时间轴里确实有旧记录', ssk.timeline.length === 1,
+        ssk.timeline.length + ' 条');
+
+  ssk.seek(12);
+  check('暂停时 seek 只改步号、不开始播放',
+        ssk.currentStep === 12 && ssk.playing === false, ssk.currentStep + '');
+  // 这条必须建立在「清之前确实非空」上，否则撤掉实现也测不出来
+  check('seek 会清掉旧时间轴（反查记录已不对应新位置）', ssk.timeline.length === 0,
+        ssk.timeline.length + ' 条');
+  ssk.seek(-3);
+  check('seek 对负数取模后仍在合法范围', ssk.currentStep === 13, ssk.currentStep + '');
+
+  ssk.playing = true;
+  ssk.seek(4);
+  check('播放中 seek 立刻按新位置补排一步',
+        ssk.timeline.length === 1 && ssk.timeline[0].step === 4,
+        '首排步号 ' + (ssk.timeline.length ? ssk.timeline[0].step : '—'));
+  check('播放中 seek 后步号继续前进', ssk.currentStep === 5, ssk.currentStep + '');
+  ssk.stop();
+
   // 首次播放仍应从第 0 步开始（别为了修「继续」把「首次」搞坏）
   var fnew = fakeAudio(0);
   var snew = new TM.Sequencer(fnew, new TM.Grid());

@@ -555,6 +555,27 @@ try { localStorage.removeItem('cubemusic.score.large'); } catch (e) { /* 存储�
       return seen.w && seen.h;
     })(), '回退值需与 large-config 的 cols/rows 一致');
 
+    // ── 播放位置标尺 ───────────────────────────────────────
+    var rulerEl = doc.getElementById('ruler');
+    var rulerRect = rulerEl.getBoundingClientRect();
+    check('大面板有播放位置标尺', !!rulerEl && !!doc.getElementById('ruler-fill'));
+    check('标尺宽度 = 棋盘宽度（位置才能对应到列）',
+          Math.abs(rulerRect.width - 2048) < 1.5, Math.round(rulerRect.width) + '');
+    check('标尺在滚动框里纵向吸顶（滚到棋盘下半部分也够得着）',
+          win.getComputedStyle(rulerEl).position === 'sticky' &&
+          win.getComputedStyle(rulerEl).top === '0px',
+          win.getComputedStyle(rulerEl).position + ' / ' +
+          win.getComputedStyle(rulerEl).top);
+
+    rulerEl.dispatchEvent(new win.PointerEvent('pointerdown', {
+      clientX: rulerRect.left + rulerRect.width * (47.5 / 64),
+      clientY: rulerRect.top + rulerRect.height / 2,
+      bubbles: true, cancelable: true, pointerId: 31, isPrimary: true
+    }));
+    check('点标尺 47.5/64 处跳到第 47 列',
+          dbg.sequencer.currentStep === 47,
+          'currentStep = ' + dbg.sequencer.currentStep);
+
     // 命中测试：点最右一列、最下一行 —— 写死 16 的话这里必然错位
     function tapCell(col, row, pointerId) {
       var p = {

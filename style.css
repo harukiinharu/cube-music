@@ -57,6 +57,65 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* ── 棋盘：标尺 + 画布绑成一块 ─────────────────────────── */
+/* 包一层是为了让标尺紧贴棋盘 —— .stage 是 gap:20px 的 flex 列，
+   直接把标尺放进去会和棋盘被 gap 拆开。 */
+.board-box {
+  width: 100%;
+  max-width: 512px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.board-box .canvas-wrap { max-width: none; }
+
+/* ── 播放位置标尺 ─────────────────────────────────────── */
+/* 宽度与棋盘一致，所以「点在标尺的哪个位置」直接对应「第几列」。
+   大面板里它还会纵向吸顶（见文件末尾的 .stage-wide 段）。 */
+.ruler {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  border-radius: 6px;
+  /* 底色 + 每列一根刻度。列数由 app.js 写成 --cols（16 或 64）。 */
+  background-color: #0d0d0d;
+  background-image: repeating-linear-gradient(
+    to right,
+    #2e2e2e 0 1px,
+    transparent 1px calc(100% / var(--cols, 16)));
+  box-shadow: inset 0 0 0 1px #1e1e1e;
+  cursor: pointer;
+  touch-action: none;            /* 拖动擦洗时别让页面滚动抢走手势 */
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.ruler:focus-visible { outline: 1px solid #3f3f3f; }
+
+/* 已播过的部分。半透明是故意的 —— 让底下的刻度透出来 */
+.ruler-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ruler-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+}
+
 /* ── 画布 ─────────────────────────────────────────────── */
 .canvas-wrap {
   position: relative;
@@ -347,9 +406,30 @@ body.wide {
 
 /* 用 margin:auto 居中，**不要**用 flex 的 justify-content —— 后者在内容
    溢出时会把起始边挤出容器，且永远滚不到那个方向（经典陷阱）。 */
+.stage-wide .board-box {
+  width: var(--board-w, 2048px);
+  max-width: none;
+  margin: 0 auto;                  /* 框比棋盘宽时居中；比棋盘窄时自动退化成 0 */
+  gap: 0;
+}
+
+/* 标尺在滚动框里**纵向吸顶** —— 滚到棋盘下半部分也还能拖游标；
+   横向则跟着棋盘一起滚，所以标尺上的位置始终对着同一列。 */
+.stage-wide .ruler {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: auto;
+  height: 22px;
+  border-radius: 0;
+  box-shadow: none;
+  background: #0b0b0b;
+  border-bottom: 1px solid var(--line);
+}
+
 .stage-wide .canvas-wrap {
   flex: 0 0 auto;
-  margin: auto;
+  margin: 0;                       /* 居中交给 .board-box 的 margin: auto */
   width: var(--board-w, 2048px);
   height: var(--board-h, 1536px);
   max-width: none;

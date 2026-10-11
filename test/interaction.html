@@ -125,8 +125,30 @@ async function run(win, doc) {
         tempoOut ? tempoOut.textContent.trim() : '缺失');
   check('旧的复选框已移除', !doc.getElementById('playhead'));
 
-  // ── 音频启动 ───────────────────────────────────────────
+  // ── 启动遮罩：点它只解锁声音，**不自动播放** ────────────
+  // 刷新后如果自己就放起来很吵，用户要的是「先看着谱子，想听了再按播放」。
   var play = doc.getElementById('btn-toggle');
+  var overlay = doc.getElementById('overlay');
+
+  check('存在启动遮罩且初始可见',
+        !!overlay && !overlay.classList.contains('hidden'));
+  check('遮罩文案说明了「只是启用声音」',
+        /启用声音/.test(overlay.textContent), overlay.textContent.trim().slice(0, 16));
+  check('未播放时按钮写着「播放」', play.textContent.trim() === '播放',
+        play.textContent.trim());
+
+  overlay.click();
+  await waitFor(function () {
+    return dbg.audio.ready && overlay.classList.contains('hidden');
+  }, 3000, '等待遮罩解锁音频');
+  await wait(200);
+  check('点遮罩解锁了音频', dbg.audio.ready === true);
+  check('点遮罩**不会**自动开始播放', dbg.sequencer.playing === false,
+        'playing = ' + dbg.sequencer.playing);
+  check('解锁后按钮仍是「播放」', play.textContent.trim() === '播放',
+        play.textContent.trim());
+
+  // 再点「播放」——这条路必须真的播起来（第一次点还要顺手解锁）
   play.click();
   // 注意：不能等 audio.ready —— 它在 buildGraph 里就置位了，
   // 早于 audio.start() 的 then 回调执行 sequencer.start()。
@@ -168,6 +190,57 @@ async function run(win, doc) {
         dbg.sequencer.timeline[0].step === 9,
         '首排步号 ' + (dbg.sequencer.timeline.length
           ? dbg.sequencer.timeline[0].step : '—'));
+
+  // ── 播放位置标尺：鼠标点 / 拖控制游标 ──────────────────
+  var rulerEl = doc.getElementById('ruler');
+  var fillEl = doc.getElementById('ruler-fill');
+  var cursorEl = doc.getElementById('ruler-cursor');
+
+  // 注意：`canvas` 这个变量在本文件后面才赋值，这里自己取一次引用
+  var canvasEl = doc.getElementById('matrix');
+
+  check('存在播放位置标尺', !!rulerEl && !!fillEl && !!cursorEl);
+  check('标尺宽度与棋盘一致（位置才能对应到列）',
+        Math.abs(rulerEl.getBoundingClientRect().width -
+                 canvasEl.getBoundingClientRect().width) < 1.5,
+        Math.round(rulerEl.getBoundingClientRect().width) + ' vs 棋盘 ' +
+        Math.round(canvasEl.getBoundingClientRect().width));
+
+  function scrub(col, type, pointerId) {
+    var r = rulerEl.getBoundingClientRect();
+    rulerEl.dispatchEvent(new win.PointerEvent(type, {
+      clientX: r.left + r.width * ((col + 0.5) / 16),
+      clientY: r.top + r.height / 2,
+      bubbles: true, cancelable: true, pointerId: pointerId || 21, isPrimary: true
+    }));
+  }
+
+  dbg.sequencer.stop();
+  scrub(11, 'pointerdown');
+  check('暂停时点标尺也能把游标挪过去（第 11 列）',
+        dbg.sequencer.currentStep === 11 && dbg.renderer.stepIndex === 11,
+        'currentStep = ' + dbg.sequencer.currentStep +
+        '，renderer.stepIndex = ' + dbg.renderer.stepIndex);
+  check('标尺游标同步画到第 11 列',
+        Math.abs(parseFloat(cursorEl.style.left) - 11 / 16 * 100) < 0.01,
+        cursorEl.style.left);
+
+  scrub(3, 'pointermove');                      // 按住不放继续拖 = 擦洗
+  check('按住拖动能连续擦洗到第 3 列', dbg.sequencer.currentStep === 3,
+        'currentStep = ' + dbg.sequencer.currentStep);
+  scrub(3, 'pointerup');
+
+  dbg.sequencer.start();
+  scrub(5, 'pointerdown');
+  // 播放中 seek 会立刻补排一步，然后 currentStep 前进到「下一个待排的步」——
+  // 和 start() 的语义一致（它指向下一步，不是刚排的那一步）。
+  check('播放中也能跳（跳转后立刻排的是第 5 步）',
+        dbg.sequencer.timeline.length > 0 && dbg.sequencer.timeline[0].step === 5,
+        '首排步号 ' + (dbg.sequencer.timeline.length
+          ? dbg.sequencer.timeline[0].step : '—'));
+  check('跳转后步号继续前进', dbg.sequencer.currentStep === 6,
+        'currentStep = ' + dbg.sequencer.currentStep);
+  scrub(5, 'pointerup');
 
   // ── 点按 / 空格 / 清空 对网格的影响 ────────────────────
   var canvas = doc.getElementById('matrix');

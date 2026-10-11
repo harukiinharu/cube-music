@@ -46,7 +46,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 104 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 110 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 59 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 72 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 85 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 89 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -97,9 +97,9 @@ src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
-test/selftest.html    104 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
-test/interaction.html 59 项页面级交互断言（iframe + ?debug=1）
-test/large.html       85 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/selftest.html    110 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
+test/interaction.html 72 项页面级交互断言（iframe + ?debug=1）
+test/large.html       89 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -215,6 +215,19 @@ test/diag.html        频率/节点诊断
 | `#btn-wave` | 开关涟漪辉光 |
 | `#btn-playhead` | 开关播放列高亮 |
 | `#btn-share` | 展开 / 收起「谱子」面板（导出代码 / 粘贴载入），见 §13 |
+| **点 / 拖棋盘上方的位置标尺** | **移动播放游标**（`sequencer.seek()`）—— 按住拖动即擦洗 |
+
+- **启动遮罩只解锁音频，不自动播放。** `boot()` **不**调用 `sequencer.start()` ——
+  刷新后自己就放起来很吵，用户要的是先看着谱子、想听了再按播放。
+  「播放」按钮与空格走的是 `togglePlayback()`，它才是**解锁 + 真的播**那条路。
+  改这两者时注意别把「第一次点播放」也变成只解锁。
+- **播放游标可以用鼠标拖。** 棋盘上方那条标尺（`#ruler`）宽度 = 棋盘宽度，
+  所以「点在标尺的哪一处」直接对应「第几列」。实现见 `app.js` 的 `bindRuler()`：
+  pointer capture 做按住擦洗；`seekFromEvent()` 除了 `sequencer.seek()` 还要同步
+  `renderer.stepIndex` —— 否则**暂停时游标不会动**（主循环在 `audibleStep()`
+  返回 null 时会退回 `renderer.stepIndex`）。
+  大面板里标尺是 `.board-frame` 内的 `position: sticky`：纵向吸顶（滚到棋盘
+  下半部分也够得着），横向跟着棋盘一起滚（所以位置始终对着同一列）。
 
 - **`pointerdown` 必须判断 `e.button !== 0` 就返回。** 浏览器在右键时会**先**派发
   `pointerdown(button=2)` 再派发 `contextmenu`；不判断按键的话，右键会先把格子翻转，

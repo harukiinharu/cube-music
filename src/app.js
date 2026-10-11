@@ -23,6 +23,11 @@
   var saveTimer = null;
   var shareBtn, shareRow, shareCode, shareStatus;
 
+  // ── 播放位置标尺 ────────────────────────────────────────
+  var ruler, rulerFill, rulerCursor;
+  var scrubbing = false;
+  var rulerStep = -1;              // 上一帧画过的步号，避免每帧都写样式
+
   function init() {
     canvas = document.getElementById('matrix');
     // 维度、格子尺寸、音表全部来自 TM.RUNTIME：
@@ -40,6 +45,8 @@
 
     bindInput();
     bindControls();
+    bindRuler();
+    syncPlayButton();          // 还没播放，按钮应该写着「播放」
 
     // 先载入乐谱，**再**挂自动保存 —— 否则载入本身会立刻回写一遍存储。
     // 优先级：URL hash（分享链接）> localStorage（本机自动存档）。
@@ -65,12 +72,16 @@
   }
 
   // ── 启动（浏览器要求先有用户手势才能出声）─────────────────
+  /**
+   * 解锁音频。**只出声不出音** —— 刷新后点遮罩应该只是「允许播放」，
+   * 不该自己就放起来（用户要的是先看着谱子、想听了再按播放）。
+   * 想立刻听到，用 `togglePlayback()`（播放按钮 / 空格）。
+   */
   function boot() {
     if (booted) return Promise.resolve();
     booted = true;
     return audio.start().then(function () {
       sequencer.setTempo(readTempo());
-      sequencer.start();
       document.getElementById('overlay').classList.add('hidden');
       syncPlayButton();
     }).catch(function (err) {
@@ -85,7 +96,15 @@
   // 按钮与空格键共用这一对函数，状态以 sequencer.playing 为准，
   // 避免两处各自维护一个布尔量而不同步。
   function togglePlayback() {
-    if (!booted) { boot().then(syncPlayButton); return; }
+    if (!booted) {
+      // 第一次点「播放」：先解锁音频，解锁完**真的开始播** —— 用户点的就是播放。
+      // （点遮罩走的是 boot()，那条路只解锁、不播放。）
+      boot().then(function () {
+        if (!sequencer.playing) sequencer.start();
+        syncPlayButton();
+      });
+      return;
+    }
     if (sequencer.playing) sequencer.stop(); else sequencer.start();
     syncPlayButton();
   }
@@ -363,6 +382,63 @@
     return s;
   }
 
+  // ── 播放位置标尺（鼠标控制游标）──────────────────────────
+  //
+  // 标尺宽度 = 整块棋盘的宽度（大面板 2048px，跟着棋盘一起横向滚），所以
+  // 「点在标尺的哪个位置」直接对应「第几列」。点一下跳过去，按住拖动就是擦洗。
+  function bindRuler() {
+    ruler = document.getElementById('ruler');
+    if (!ruler) return;
+    rulerFill = document.getElementById('ruler-fill');
+    rulerCursor = document.getElementById('ruler-cursor');
+
+    // 刻度背景按列数算（CSS 里用 repeating-linear-gradient 画），
+    // 大面板 2048px 宽、可见的常常只有一小段，没有刻度看不出自己在哪一列
+    global.document.documentElement.style.setProperty('--cols', grid.cols);
+
+    ruler.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;         // 与画布同样的约定：只管左键
+      e.preventDefault();
+      scrubbing = true;
+      if (ruler.setPointerCapture) {
+        try { ruler.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+      }
+      seekFromEvent(e);
+      boot();                             // 拖动游标也算一次用户手势，顺手解锁音频
+    });
+
+    ruler.addEventListener('pointermove', function (e) {
+      if (scrubbing) seekFromEvent(e);
+    });
+
+    var end = function () { scrubbing = false; };
+    ruler.addEventListener('pointerup', end);
+    ruler.addEventListener('pointercancel', end);
+    global.addEventListener('pointerup', end);   // 指针在标尺外抬起也要收尾
+  }
+
+  function seekFromEvent(e) {
+    var r = ruler.getBoundingClientRect();
+    var col = Math.floor((e.clientX - r.left) / r.width * grid.cols);
+    if (col < 0) col = 0;
+    if (col >= grid.cols) col = grid.cols - 1;
+    sequencer.seek(col);
+    // 暂停时 audibleStep() 返回 null，主循环会退回 renderer.stepIndex ——
+    // 不把它一起挪过去的话，游标在暂停状态下不会跟着走。
+    renderer.stepIndex = col;
+    syncRuler(col);
+  }
+
+  /** 把游标画到当前位置。同一帧内重复同一步号就不写样式了。 */
+  function syncRuler(step) {
+    if (!rulerFill || step === rulerStep) return;
+    rulerStep = step;
+    var n = grid.cols;
+    rulerFill.style.width = ((step + 1) / n * 100) + '%';
+    rulerCursor.style.left = (step / n * 100) + '%';
+    ruler.setAttribute('aria-valuenow', step);
+  }
+
   // ── 主循环 ──────────────────────────────────────────────
   //
   // 波场用固定步长推进，与显示刷新率解耦：60Hz 与 120Hz 屏上涟漪速度一致。
@@ -402,6 +478,7 @@
       simAccumulator = 0;
     }
 
+    syncRuler(step);
     renderer.composite(step);
   }
 

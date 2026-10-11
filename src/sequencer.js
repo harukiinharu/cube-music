@@ -63,6 +63,24 @@
     this._tick();
   };
 
+  /**
+   * 跳到指定步（鼠标点 / 拖时间轴标尺时用）。
+   *
+   * 只改「下一个待排的步」，**不去重建已经排进音频时钟的音符** —— 那些在未来
+   * `SCHEDULE_AHEAD`（120ms）内还会照原样响完。为了拖动去 flush 音频图得不偿失
+   * （会咔哒一声，还得重建整条延迟链），120ms 的尾巴可以接受。
+   *
+   * 暂停时只改步号；播放时顺手补排一步，让新位置马上生效。
+   */
+  Sequencer.prototype.seek = function (step) {
+    var cols = this.grid.cols;
+    this.currentStep = ((step % cols) + cols) % cols;   // 负数也落到合法范围
+    this.timeline.length = 0;                           // 旧的反查记录已不对应新位置
+    if (!this.playing) return;
+    this.nextStepTime = this.audio.ctx.currentTime + START_DELAY;
+    this._tick();
+  };
+
   Sequencer.prototype.stop = function () {
     this.playing = false;
     if (this.timer) {
