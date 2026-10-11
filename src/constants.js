@@ -1,7 +1,8 @@
 /*
- * ToneMatrix Web — 常量与派生量
+ * Cube Music — 常量与派生量
  *
- * 所有数值均来自对原 SWF 的 AVM2 字节码反汇编，见《逆向分析-原理篇.md》第 1 节。
+ * 所有数值均来自对原版 Flash 程序（ToneMatrix，2009）AVM2 字节码的反汇编，
+ * 不是猜的、也不是调出来的。改动前请先读 AGENTS.md §5。
  */
 (function (global) {
   'use strict';
