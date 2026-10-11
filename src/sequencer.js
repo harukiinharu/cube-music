@@ -20,9 +20,16 @@
   var START_DELAY = 0.06;     // 首步相对 currentTime 的启动延迟
   var TIMELINE_KEEP = 1.0;    // 保留最近 1 秒的排程记录
 
-  function Sequencer(audio, grid) {
+  /**
+   * @param {Object} [opts]
+   * @param {number[]} [opts.notes] 行 → 音高。缺省 CONFIG.NOTES（原版 16 音）。
+   *        大面板会传一张更长的表（见 src/large-config.js）。
+   */
+  function Sequencer(audio, grid, opts) {
+    opts = opts || {};
     this.audio = audio;
     this.grid = grid;
+    this.notes = opts.notes || CFG.NOTES;
     this.tempo = CFG.TEMPO;
     this.currentStep = 0;
     this.playing = false;
@@ -75,7 +82,9 @@
     while (this.nextStepTime < horizon && guard++ < 256) {
       this._scheduleStep(this.currentStep, this.nextStepTime);
       this.nextStepTime += stepDur;
-      this.currentStep = (this.currentStep + 1) % CFG.GRID;
+      // 绕回按**列数**取模。曾经写死 % GRID，矩形网格下会在第 16 步提前归零，
+      // 后半段永远播不到（test/large.html 有断言锁这条）。
+      this.currentStep = (this.currentStep + 1) % this.grid.cols;
     }
 
     // 丢弃已经过去的排程记录
@@ -87,12 +96,12 @@
 
   /**
    * 把某一列的所有音符排进音频时钟。
-   * 对应 Sequencer.processTimedEvents 中的内层循环：扫描 16 行。
+   * 对应 Sequencer.processTimedEvents 中的内层循环：扫描每一行。
    */
   Sequencer.prototype._scheduleStep = function (step, time) {
-    for (var row = 0; row < CFG.GRID; row++) {
+    for (var row = 0; row < this.grid.rows; row++) {
       if (this.grid.get(step, row)) {
-        this.audio.synthNote(CFG.NOTES[row], time);
+        this.audio.synthNote(this.notes[row], time);
       }
     }
     this.timeline.push({ step: step, time: time });

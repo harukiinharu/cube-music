@@ -11,6 +11,7 @@
 
   var TM = global.TM;
   var CFG = TM.CONFIG;
+  var RUNTIME = TM.RUNTIME;
 
   var grid, audio, sequencer, renderer;
   var canvas;
@@ -19,10 +20,18 @@
 
   function init() {
     canvas = document.getElementById('matrix');
-    grid = new TM.Grid();
+    // 维度、格子尺寸、音表全部来自 TM.RUNTIME：
+    // index.html 用缺省值（16×16，与原版逐位一致），large.html 由
+    // src/large-config.js 覆盖成 32 行 × 64 列。
+    grid = new TM.Grid(RUNTIME);
     audio = new TM.AudioEngine();
-    sequencer = new TM.Sequencer(audio, grid);
-    renderer = new TM.Renderer(canvas, grid);
+    sequencer = new TM.Sequencer(audio, grid, RUNTIME);
+    renderer = new TM.Renderer(canvas, grid, RUNTIME);
+
+    // 画布宽高比跟着网格走（style.css 里 .canvas-wrap 只写了默认值）。
+    // 设置成 CSS 像素下的逻辑尺寸比，缩放由 max-width 控制。
+    var wrapBox = document.querySelector('.canvas-wrap');
+    if (wrapBox) wrapBox.style.aspectRatio = grid.cols + ' / ' + grid.rows;
 
     bindInput();
     bindControls();
@@ -157,7 +166,10 @@
     // 右键：试听该格的音，不改动图案（顺带屏蔽浏览器右键菜单）。
     // 挂在容器上而不是 canvas 上 —— 启动前遮罩层盖在 canvas 上方，
     // 若只监听 canvas，第一次右键会落到遮罩上而弹出浏览器菜单。
-    var wrap = document.querySelector('.canvas-wrap') || canvas;
+    // 大盘面（large.html）的遮罩在 .board-shell 里、不在 .canvas-wrap 内，
+    // 所以优先挂到能同时罩住「棋盘 + 遮罩」的那一层。
+    var wrap = document.querySelector('.board-shell') ||
+               document.querySelector('.canvas-wrap') || canvas;
     wrap.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       if (!rect) rect = canvas.getBoundingClientRect();
@@ -172,20 +184,23 @@
    * 音频未启动时先启动（boot 内部已 catch，始终会 resolve）。
    */
   function audition(cell) {
-    var note = CFG.NOTES[cell.row];
+    // 走音序器同一张音表，保证「试听听到的音」与「播放时听到的音」永远一致
+    var note = sequencer.notes[cell.row];
     renderer.flash(cell.col, cell.row);   // 同步给出「按的是这格」的提示
     boot().then(function () {
       audio.synthNote(note, 0);
     });
   }
 
+  // 命中测试按画布上的归一化坐标缩放。**必须**取 grid.cols / grid.rows，
+  // 不能写死 CFG.GRID —— 矩形网格下会把右半边整片映射到错误列。
   function cellAt(e, rect) {
     var r = rect || canvas.getBoundingClientRect();
     var x = (e.clientX - r.left) / r.width;
     var y = (e.clientY - r.top) / r.height;
-    var col = Math.floor(x * CFG.GRID);
-    var row = Math.floor(y * CFG.GRID);
-    if (col < 0 || col >= CFG.GRID || row < 0 || row >= CFG.GRID) return null;
+    var col = Math.floor(x * grid.cols);
+    var row = Math.floor(y * grid.rows);
+    if (col < 0 || col >= grid.cols || row < 0 || row >= grid.rows) return null;
     return { col: col, row: row };
   }
 

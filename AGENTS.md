@@ -60,6 +60,19 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 结果在 `<pre id="out">` 里（当前 41 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
+大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
+
+```bash
+"$CHROME" --headless=new --disable-gpu --no-sandbox --allow-file-access-from-files \
+  --autoplay-policy=no-user-gesture-required --virtual-time-budget=30000 \
+  --user-data-dir=/tmp/tm-large \
+  --dump-dom "file://$PWD/test/large.html"
+```
+
+结果在 `<pre id="out">` 里（当前 61 项）。它盯的是**矩形网格相对正方形多出来的
+失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
+命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
+
 视觉回归（渲染是否被改坏）：
 
 ```bash
@@ -73,16 +86,19 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 ## 3. 文件地图
 
 ```
-index.html            页面骨架 + 脚本加载顺序（constants → grid → audio → sequencer → renderer → app）
-style.css             视觉风格（纯黑底 + 浅灰方块）
-src/constants.js      全部常量、音阶表、包络曲线。数值均出自字节码，改动前先读 §5
-src/grid.js           16×16 音符网格（对应 toneMatrix::Pattern）
+index.html            原版入口（16×16）。脚本顺序：constants → grid → audio → sequencer → renderer → app
+large.html            大面板入口（32×64）。比上面多一层 large-config，见 §12
+style.css             视觉风格（纯黑底 + 浅灰方块）。.stage-wide 是大面板的宽版布局
+src/constants.js      全部常量、音阶表、包络曲线 + TM.RUNTIME（运行时维度）。改动前先读 §5
+src/large-config.js   只被 large.html 加载：把 TM.RUNTIME 覆盖成 32 行 × 64 列。见 §12
+src/grid.js           音符网格（对应 toneMatrix::Pattern）。维度取自 TM.RUNTIME
 src/audio.js          音频引擎：振荡器 / 包络 / 声像 / 反馈延迟 / 速度联动
 src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §4
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
-src/app.js            装配、输入、主循环（固定步长）
+src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
 test/selftest.html    71 项断言（含离线音频渲染、波场稳定性、描边不变式）
 test/interaction.html 41 项页面级交互断言（iframe + ?debug=1）
+test/large.html       61 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -135,6 +151,10 @@ test/diag.html        频率/节点诊断
 配色 背景 #000000，关 #333333（= #EEEEEE − #BBBBBB），开 #EEEEEE
 波场 v = (0.5·Σ四邻域 − v_prev) · 0.85   ← ×0.85 作用于整个括号，只乘 v_prev 会指数发散
 ```
+
+以上量都与网格规格无关，两种面板共用。**`CONFIG.GRID` / `CONFIG.NOTES` /
+`CONFIG.RESOLUTION` 描述的是原版规格**，`test/selftest.html` 直接断言它们等于
+16 / 16 / 16 —— 要做别的规格的面板，**不要动这三个值**，去改 `TM.RUNTIME`（见 §12）。
 
 ## 6. 渲染约定
 
@@ -275,7 +295,7 @@ test/diag.html        频率/节点诊断
   需要重新设置。
 - **自动化**：`.github/workflows/deploy.yml`。push 到 `main` 即触发：
   跑 `scripts/ci-test.sh` → 组装 `_site/` → 部署到 Pages。**回归不通过就不部署。**
-- 只有 `index.html` / `style.css` / `src/` / `test/` / `AGENTS.md` 会被发布；
+- 只有 `index.html` / `large.html` / `style.css` / `src/` / `test/` / `AGENTS.md` 会被发布；
   `.github/` 与 `scripts/` 不进站点。README.md / front2.png 只进仓库
   （GitHub 渲染 README 时解析相对图片），不进 Pages 站点 —— 站点首页就是应用本身。
   **改发布范围时记得同步 `deploy.yml` 的 `cp -R` 行**：那里列了谁就复制谁，
@@ -285,3 +305,98 @@ test/diag.html        频率/节点诊断
 - 本地跑同一套回归：`bash scripts/ci-test.sh`
   （退出码 0 = 通过，1 = 有失败；找不到 Chrome 会跳过并返回 0）。
 - 发布新版本：`git tag -a vX.Y.Z -m "..."` 并 `git push origin main --tags`。
+
+## 12. 两套面板：16×16 与 32×64
+
+同一个引擎跑两种规格，靠的是把**维度**从常量里解耦到 `TM.RUNTIME`。
+
+| | 原版 `index.html` | 大面板 `large.html` |
+|---|---|---|
+| 列（时间步） | 16 | 64 |
+| 行（音高） | 16 | 32 |
+| 音阶 | D 大调**五声**（1 2 3 5 6） | D 大调**七声**（补上第 4 音 G、第 7 音 C#） |
+| 音域 | A6 → A3（3 个八度） | E7 → B2（约 4.4 个八度） |
+| 一圈 | 1 小节 = 2 s @120BPM | 4 小节 = 8 s @120BPM |
+| 格子 / 方块 | 32 px / 26 px | **32 px / 26 px（与原版逐像素同尺寸）** |
+| 画布 | 512×512 | 2048×1024（1:1 上屏，装不下就在框内滚动） |
+| 配置来源 | `CONFIG`（缺省） | `src/large-config.js` 覆盖 `TM.RUNTIME` |
+
+**步长不变**：`RESOLUTION` 两种规格都是 16 步/小节，所以大面板变长的是**段落**，
+不是音符时值 —— 同一个速度下，两版单步的时长完全一致。
+
+**音阶可换**：`TM.buildScaleTable(rows, topNote, scale)` 从 topNote 起逐级下行，
+`scale` 是「相对 A 的半音偏移」升序数组，见 `TM.SCALES`。
+`buildScaleTable(16, CONFIG.NOTES[0], TM.SCALES.pentatonic)` 会**逐位复现原版
+`CONFIG.NOTES`** —— `test/large.html` 拿这条校验生成器本身没写错，改生成器时
+先看这条有没有红。
+
+**大面板的音表是原版五声的超集**（七声 ⊃ 五声），但**行号不同**，
+所以两版之间**没有**「同一份图案平移对应」的关系了 —— 早期版本有，补上 4、7 音
+之后就没有了。`test/large.html` 断言的是「原版每个音仍在新表里」。行 0 = 原版
+最高音 + 7 个半音（`CONFIG.NOTES[0] + 7` = E7），这样 32 行的中段与原版 16 行的
+中段基本对齐，整块棋盘仍偏中音区。
+
+### 改这里时容易踩的坑
+
+矩形网格（`cols ≠ rows`）会引入正方形网格下不存在的一类 bug，**全都踩过**：
+
+- 一维数组的 stride 必须是 `rows`：`index = col * rows + row`。写成 `cols` 会让
+  右下角落到数组之外被 Uint8Array **静默丢弃**（不报错）。
+- 音序器绕回按 `cols` 取模，行扫描按 `rows` 循环。写死 `CFG.GRID` 会让第 16 步
+  提前归零、且后 16 行永远播不到。
+- 命中测试（`app.js` 的 `cellAt`）要分别用 `grid.cols` / `grid.rows`。
+- 波场是 `rows × cols`（`map[行][列]`），`create2DMap(rows, cols)` 别接反。
+- 越界判断要分别看 `cols` 与 `rows`。
+
+### 布局：不缩放，可滚动
+
+大盘面的方块**与原版逐像素同尺寸**，代价是棋盘 2048 × 1024 —— 既超出笔记本横向视口，
+也超出纵向视口（32 行 × 26px 光棋盘就 1024px 高）。这是几何决定的：想同时要
+「大盘面」和「原版大小的方块」就必然要滚动。所以大盘面的布局是：
+
+- **整页高度锁死**（`body.wide` 是 `height:100dvh` 的 flex 列 + `overflow:hidden`），
+  滚动条**收进 `.board-frame` 里** —— 页头、控件、页脚永远不动。这是关键：
+  让 `body` 去滚的话，一滚页头控件全跑掉了。
+- `.canvas-wrap` 的 CSS 宽高由 `large-config.js` 写进 `--board-w` / `--board-h`，
+  **等于逻辑尺寸**，这样无论 dpr 多少都 1:1 上屏、浏览器不做二次重采样
+  （`test/large.html` 有断言守着这条，它是「方块一样大」在上屏环节的保证）。
+- `.board-frame` 用 `overflow:auto` + `max-width/height` = 棋盘尺寸：**装得下就没有
+  滚动条**，装不下才滚。实测 2560×1300 时横向纵向都是 100%，一格都不用滚。
+- 框内的 `.canvas-wrap` 用 `margin: auto` 居中，**不要**改用 flex 的
+  `justify-content: center` —— 后者在内容溢出时会把起始边挤出容器、
+  且那个方向永远滚不到（经典陷阱，踩过）。
+- `.overlay` 挂在 `.board-shell` 上（滚动框**外面**），否则「点击开始」会跟着
+  2048×1024 的棋盘一起被滚出可见区。`app.js` 的 contextmenu 监听也因此优先挂
+  `.board-shell`。
+- 控件栏另限宽 900px 居中：跟 2048 的棋盘同宽的话滑块会拉成一条 2000px 的线。
+
+**实测各屏可容纳程度**（页头+控件+页脚共占 277px）：
+
+| 视口 | 滚动框 | 横向可见 | 纵向可见 |
+|---|---|---|---|
+| 1512×747（14" 笔记本） | 1480×493 | 72% | 48% |
+| 1512×982（最大化） | 1480×728 | 72% | 71% |
+| 2560×1300（2K） | 2048×1024 | **100%** | **100%** |
+
+笔记本上纵向只能看到一半左右，这是 32 行 × 26px 的方块尺寸决定的，**不是 bug**。
+
+> 曾经把格子减半到 16px 想塞进屏幕，但按比例算出的 `inset` 是 1.5，在 1x 屏上
+> 方块边界落在半像素、被抗锯齿糊出灰边（实测过渡值 25 / 119，而整数内缩下灰度只
+> 出现 `0 / 51 / 238` 三个值）。既然要跟原版一样大，索性连格子尺寸一起沿用原版。
+> **如果将来要动 `cell`，`inset` 必须保持整数。**
+
+### 参数怎么定的（都有实测依据）
+
+- **波纹层刻意只有 1024×512**（画布是 2048×1024）。它本来就模糊，按画布分辨率渲染
+  纯属浪费。`blurWave = 6`：这里一个波纹格 = 1024/64 = 16px，原版是 512/16 = 32px、
+  模糊 12，取 `16 × 12/32 = 6` 两版的涟漪柔和程度才一致。
+- **每帧开销（无头 Chrome / dpr2 / 硬件 GPU）：`5.76 ms → 19.85 ms`（3.45×）**，
+  已经越过 60fps 的 16.7 ms 预算，涟漪大约掉到 30fps。逐项：波场 0.87 → 1.84 ms、
+  合成 4.89 → 18.02 ms、拖动 0.99 → 1.61 ms（点格子本身仍然跟手）。
+  合成的开销 ∝ 画布面积，是固有代价（格子层必须按设备分辨率 1:1 上屏，见 §6）。
+  要再降只能改渲染模型（例如把辉光拆成独立的 `mix-blend-mode` 图层、
+  不再每帧整块重合成），那是独立的一件事，别顺手做。
+
+**加新规格面板的步骤**：写一个 `src/xxx-config.js` 覆盖 `TM.RUNTIME`（含
+`notes`），照 `large.html` 复制一份页面并把脚本插在 `constants.js` 之后，
+然后 **记得同步 `deploy.yml` 的 `cp -R` 行**。

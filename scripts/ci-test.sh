@@ -67,6 +67,7 @@ suite() {
 echo "=== Cube Music 页面级回归 ==="
 suite selftest.html results
 suite interaction.html out
+suite large.html out
 
 if [ "$FAILED" -ne 0 ]; then
   echo

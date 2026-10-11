@@ -3,32 +3,44 @@
  *
  * 对应原程序 toneMatrix::Pattern。
  * 原结构是 Vector.<Vector.<Boolean>>，索引方式为 steps[列][行]：
- *   列 = 时间步（0 → 15），行 = 音高索引（0 最高音）。
- * Web 版用一维 Uint8Array 存储，索引 = 列 * 16 + 行。
+ *   列 = 时间步，行 = 音高索引（0 最高音）。
+ * Web 版用一维 Uint8Array 按列主序存储，索引 = 列 * 行数 + 行。
+ *
+ * 维度可配置（见 TM.RUNTIME），但**默认 16×16 与原版逐位一致**。
  */
 (function (global) {
   'use strict';
 
-  var GRID = global.TM.CONFIG.GRID;
+  var RUNTIME = global.TM.RUNTIME;
 
-  function Grid() {
-    this.size = GRID;
-    this.cells = new Uint8Array(GRID * GRID);
+  /**
+   * @param {Object} [opts] 覆盖运行时维度；不给则取 TM.RUNTIME（缺省 = 原版 16×16）
+   * @param {number} [opts.cols] 列数（时间步）
+   * @param {number} [opts.rows] 行数（音高）
+   */
+  function Grid(opts) {
+    opts = opts || {};
+    this.cols = opts.cols || RUNTIME.cols;
+    this.rows = opts.rows || RUNTIME.rows;
+    // 兼容旧代码：历史上是正方形网格，size 即边长。**不要**拿它当 stride 用，
+    // 矩形网格下列步长是 rows —— 这正是必须把索引写成 col * rows + row 的原因。
+    this.size = this.rows;
+    this.cells = new Uint8Array(this.cols * this.rows);
     this.listeners = [];
   }
 
   Grid.prototype.index = function (col, row) {
-    return col * this.size + row;
+    return col * this.rows + row;
   };
 
   Grid.prototype.get = function (col, row) {
-    return this.cells[col * this.size + row] === 1;
+    return this.cells[col * this.rows + row] === 1;
   };
 
   Grid.prototype.set = function (col, row, value) {
     if (!this.inBounds(col, row)) return;
     var next = value ? 1 : 0;
-    var i = col * this.size + row;
+    var i = col * this.rows + row;
     if (this.cells[i] === next) return;
     this.cells[i] = next;
     this.emit({ type: 'set', col: col, row: row, value: next === 1 });
@@ -60,7 +72,7 @@
   };
 
   Grid.prototype.inBounds = function (col, row) {
-    return col >= 0 && col < this.size && row >= 0 && row < this.size;
+    return col >= 0 && col < this.cols && row >= 0 && row < this.rows;
   };
 
   /**

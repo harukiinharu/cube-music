@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cube Music · Large</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="wide">
+
+<main class="stage stage-wide">
+  <header class="head">
+    <h1>Cube Music <span class="tag">Large</span></h1>
+    <p class="sub">32 音 × 64 步　·　方块与原版同尺寸，棋盘较大可滚动　·　灵感来自 warma</p>
+  </header>
+
+  <!-- 棋盘（2048 × 1024）比屏幕大，所以套一个限宽限高的滚动框：
+       整页不动，只有框里滚。框装得下时（屏幕够大）不出滚动条。 -->
+  <div class="board-shell">
+    <div class="board-frame">
+      <div class="canvas-wrap">
+        <canvas id="matrix" width="2048" height="1024" aria-label="32 × 64 音符矩阵"></canvas>
+      </div>
+    </div>
+    <!-- 遮罩放在滚动框**外面**，这样「点击开始」始终在可见区域中央，
+         不会跟着棋盘一起被滚走 -->
+    <div id="overlay" class="overlay">
+      <div class="overlay-inner">
+        <div class="overlay-mark"></div>
+        <p class="overlay-title">点击开始</p>
+        <p class="overlay-hint">浏览器需要一次交互才允许播放声音</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <!-- 第一行：动作 + 显示开关（用竖线分组） -->
+    <div class="ctl-row ctl-actions">
+      <button id="btn-toggle" class="btn primary">暂停</button>
+      <button id="btn-clear" class="btn">清空</button>
+      <span class="ctl-sep" aria-hidden="true"></span>
+      <button id="btn-wave" class="btn toggle" aria-pressed="true">涟漪</button>
+      <button id="btn-playhead" class="btn toggle" aria-pressed="true">播放列</button>
+    </div>
+
+    <!-- 第二行：参数。两行对齐成一列：标签 / 滑块 / 数值 -->
+    <div class="ctl-row ctl-fields">
+      <label class="f-label" for="tempo">速度</label>
+      <input id="tempo" class="f-range" type="range" min="40" max="240" step="1" value="120">
+      <output id="tempo-out" class="f-value" for="tempo">120 BPM</output>
+
+      <label class="f-label" for="volume">音量</label>
+      <input id="volume" class="f-range" type="range" min="0" max="100" step="1" value="85">
+      <output id="volume-out" class="f-value" for="volume">85%</output>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <p><strong>点击 / 拖动</strong> 开关方格　·　<strong>右键</strong> 试听　·　<strong>空格</strong> 暂停 / 继续</p>
+    <p class="switch"><a href="index.html">← 回到 16 × 16 原版</a></p>
+  </footer>
+</main>
+
+<!--
+  加载顺序与 index.html 一致，只在 constants 之后多插了一个 large-config：
+  它在构造任何对象**之前**把 TM.RUNTIME 覆盖成 32 × 64，之后的模块一律从
+  RUNTIME 读维度，因此不需要为大盘面单独维护一份引擎。
+-->
+<script src="src/constants.js"></script>
+<script src="src/large-config.js"></script>
+<script src="src/grid.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/sequencer.js"></script>
+<script src="src/renderer.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

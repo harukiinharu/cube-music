@@ -93,8 +93,74 @@
     return curve;
   }
 
+  // ────────────────────────────────────────────────────────
+  // 运行时网格配置
+  // ────────────────────────────────────────────────────────
+  //
+  // 原版是 16×16 的正方形网格，CONFIG.GRID 一个数同时充当「列数」和「行数」。
+  // 这里把维度单独抽出来，让同一套引擎能跑不同规格的面板（见 large.html）。
+  //
+  // **缺省值等于原版**，所以不传参数构造出来的东西与改造前逐位一致 ——
+  // test/selftest.html 的 71 项断言全部建立在这个前提上。
+  //
+  // 另外几个可调项（inset / radius / blurCell / blurWave / waveSize / hl*）
+  // 刻意**不在这里给默认值**：缺省一律回落 CONFIG.*，因为 test/perf.html 会
+  // 直接改 CONFIG 做 A/B，把值抄进这里会让它失效。
+  var RUNTIME = {
+    cols: CONFIG.GRID,      // 时间步数（一圈走多少步）
+    rows: CONFIG.GRID,      // 音高行数
+    cell: CONFIG.CELL,      // 格子边长（逻辑像素）
+    notes: CONFIG.NOTES     // 行 → 音高，长度必须等于 rows
+  };
+
+  // ── 音阶 ───────────────────────────────────────────────
+  // 写成「相对 A 的半音偏移」的升序数组（音高编号里 72 = A）。
+  //
+  // 原版是 **D 大调五声** D E F# A B。放到 D 大调里看它正好是 1 2 3 5 6 级，
+  // 缺的是**第 4 音 G 与第 7 音 C#** —— 补回这两个就是完整的 D 大调七声。
+  // 大面板要的就是补全后的那张（见 src/large-config.js）。
+  var SCALES = {
+    pentatonic: [0, 2, 5, 7, 9],         // A B D  E F#      （= 原版规格）
+    major:      [0, 2, 4, 5, 7, 9, 10]   // A B C# D E F# G  （补上 4、7 级）
+  };
+
+  /**
+   * 从 topNote 起**逐级下行**，生成 rows 个音的行表（行 0 最高）。
+   *
+   * 用「逐级下行」而不是按固定音程展开，是为了让音阶可换：换 `scale` 数组
+   * 即换音阶，行数与音域都不用动。
+   *
+   * `buildScaleTable(16, CONFIG.NOTES[0], SCALES.pentatonic)` 应当**逐位复现
+   * 原版 CONFIG.NOTES** —— test/large.html 拿这条校验生成器本身没写错。
+   *
+   * @param {number}   rows    行数
+   * @param {number}   topNote 行 0 的音（必须在音阶内）
+   * @param {number[]} scale   音阶相对 A 的半音偏移，升序
+   */
+  function buildScaleTable(rows, topNote, scale) {
+    var last = scale.length - 1;
+    var out = [topNote];
+    var n = topNote;
+    var i, p, idx;
+
+    for (i = 1; i < rows; i++) {
+      p = ((n - 72) % 12 + 12) % 12;             // 取模后落到 [0, 12)
+      idx = scale.indexOf(p);
+      if (idx < 0) {
+        throw new Error('buildScaleTable: 音 ' + n + ' 不在音阶里（起手音 ' + topNote + '）');
+      }
+      // 退到低一级；若已经是本级最低音，就跨回上一个八度
+      n -= (idx > 0) ? (scale[idx] - scale[idx - 1]) : (12 + scale[0] - scale[last]);
+      out.push(n);
+    }
+    return out;
+  }
+
   global.TM = global.TM || {};
   global.TM.CONFIG = CONFIG;
+  global.TM.RUNTIME = RUNTIME;
+  global.TM.SCALES = SCALES;
+  global.TM.buildScaleTable = buildScaleTable;
   global.TM.noteToFrequency = noteToFrequency;
   global.TM.barSeconds = barSeconds;
   global.TM.stepSeconds = stepSeconds;
