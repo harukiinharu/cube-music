@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 72 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 84 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 89 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 91 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -98,8 +98,8 @@ src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
 test/selftest.html    110 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
-test/interaction.html 72 项页面级交互断言（iframe + ?debug=1）
-test/large.html       89 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/interaction.html 84 项页面级交互断言（iframe + ?debug=1）
+test/large.html       91 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -216,6 +216,19 @@ test/diag.html        频率/节点诊断
 | `#btn-playhead` | 开关播放列高亮 |
 | `#btn-share` | 展开 / 收起「谱子」面板（导出代码 / 粘贴载入），见 §13 |
 | **点 / 拖棋盘上方的位置标尺** | **移动播放游标**（`sequencer.seek()`）—— 按住拖动即擦洗 |
+| **⌘/Ctrl + Z** | 撤销 |
+| **⌘/Ctrl + ⇧ + Z**（或 `Ctrl+Y`） | 反撤销 |
+
+- **撤销的粒度是「一次操作」，不是「一格」。** 快照在**操作开始时**拍
+  （画布 `pointerdown` / 清空 / 载入），所以按住拖过一整条只占一步。
+  历史里直接存整张 grid 的副本（16×16 = 256 B、64×48 = 3 KB），上限 60 步 ——
+  为省这点内存去做增量记录不划算。
+  空谱子上点「清空」不占步骤（`if (!grid.any()) return`），否则会攒出一串空撤销。
+- **焦点在 `input` / `textarea` 里时 ⌘Z 要放行给浏览器**（判 `e.target.tagName`），
+  否则在「谱子」面板里按 ⌘Z 会去撤销棋盘，很出戏。
+- **「谱子」面板里的代码是实时同步的**：`grid.onChange` → `refreshShare()`。
+  但**只在面板里那段内容没被用户改过时**才刷新（`shareCode.value === shareEncoded`
+  才刷）—— 否则用户正在往里粘别人的代码，改一下格子就被冲掉了。
 
 - **启动遮罩只解锁音频，不自动播放。** `boot()` **不**调用 `sequencer.start()` ——
   刷新后自己就放起来很吵，用户要的是先看着谱子、想听了再按播放。

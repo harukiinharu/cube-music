@@ -610,6 +610,24 @@ try { localStorage.removeItem('cubemusic.score.large'); } catch (e) { /* 存储�
           storedLarge === win.TM.Store.encode(dbg.grid),
           storedLarge ? storedLarge.slice(0, 18) + '…' : '没读到');
 
+    // ── 面板里的代码实时同步 + 撤销 ────────────────────────
+    doc.getElementById('btn-share').click();
+    var shareCodeEl = doc.getElementById('share-code');
+    var codeBefore = shareCodeEl.value;
+
+    tapCell(20, 20, 61);
+    var lit20 = await waitFor(function () { return dbg.grid.get(20, 20) === true; }, 1500);
+    check('大面板：面板展开时，代码跟着格子实时更新',
+          lit20 && shareCodeEl.value !== codeBefore &&
+          shareCodeEl.value === win.TM.Store.encode(dbg.grid, win.TM.RUNTIME.notes),
+          shareCodeEl.value.slice(0, 16) + '…');
+
+    win.dispatchEvent(new win.KeyboardEvent('keydown', {
+      key: 'z', metaKey: true, bubbles: true, cancelable: true
+    }));
+    check('大面板：⌘Z 撤销刚才那一格', dbg.grid.get(20, 20) === false,
+          'cell(20,20) = ' + dbg.grid.get(20, 20));
+
     // 播放一帧，确认渲染链路在 2048 × 1536 上真的跑得动
     dbg.renderer.composite(63);
     var px = canvas.getContext('2d')

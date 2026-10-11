@@ -51,7 +51,7 @@
     // 先载入乐谱，**再**挂自动保存 —— 否则载入本身会立刻回写一遍存储。
     // 优先级：URL hash（分享链接）> localStorage（本机自动存档）。
     restoreScore();
-    grid.onChange(function () { scheduleSave(); });
+    grid.onChange(function () { scheduleSave(); refreshShare(); });
 
     // 关页面时把还没落盘的那次改动补上（防抖窗口内退出会丢）
     global.addEventListener('pagehide', flushSave);
@@ -151,6 +151,7 @@
       }
       var cell = cellAt(e, rect);
       if (!cell) return;
+      pushHistory();                                  // 一次按下 = 一步撤销
       paintValue = grid.toggle(cell.col, cell.row);   // 同步上色，不等音频
       lastCell = cell;
       boot();                                         // 音频后台启动
@@ -188,6 +189,23 @@
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
         togglePlayback();
+      }
+    });
+
+    // ⌘/Ctrl+Z 撤销、⌘/Ctrl+Shift+Z（或 Ctrl+Y）反撤销。
+    // 焦点在输入框里时**放行** —— 让浏览器自带的文本撤销生效，
+    // 否则在「谱子」面板里按 ⌘Z 会去撤销棋盘，很出戏。
+    global.addEventListener('keydown', function (e) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      var t = e.target;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
+      var k = (e.key || '').toLowerCase();
+      if (k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      } else if (k === 'y') {          // Windows 习惯的反撤销
+        e.preventDefault();
+        redo();
       }
     });
 
@@ -246,6 +264,8 @@
     });
 
     document.getElementById('btn-clear').addEventListener('click', function () {
+      if (!grid.any()) return;         // 空谱子别占一步撤销
+      pushHistory();
       grid.clear();
     });
 
@@ -338,16 +358,35 @@
     if (shareStatus) shareStatus.textContent = msg;
   }
 
+  /** 上一次由我们填进面板的代码，用来分辨「面板里是生成的代码」还是「用户在粘贴」 */
+  var shareEncoded = '';
+
+  function fillShareCode() {
+    shareEncoded = encodeScore();
+    shareCode.value = shareEncoded;
+  }
+
+  /**
+   * 面板开着时让代码跟着谱子实时更新。
+   * 但如果面板里的内容**不是**我们填的那段（说明用户正在往里粘别人的代码），
+   * 就不动它 —— 否则改一下格子就把人家刚粘的东西冲掉了。
+   */
+  function refreshShare() {
+    if (!shareRow || shareRow.hidden || !shareCode) return;
+    if (shareCode.value !== shareEncoded) return;
+    fillShareCode();
+  }
+
   function toggleShare(force) {
     var show = (force === undefined) ? shareRow.hidden : !!force;
     shareRow.hidden = !show;
     shareBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
     if (!show) return;
 
-    shareCode.value = encodeScore();
+    fillShareCode();
     shareCode.select();
     setShareStatus(TM.Store.available()
-      ? '这是当前乐谱。代码按音高记录，换个面板（加/减八度）也照样能载入。'
+      ? '这是当前乐谱，会跟着你的改动实时更新。换个面板（加/减八度）也照样能载入。'
       : '当前环境不能自动保存（无痕模式或存储被禁用），请用「复制」手动备份。');
   }
 
@@ -367,9 +406,14 @@
   }
 
   function loadShare() {
-    var r = applyScore(shareCode.value);
+    var text = shareCode.value;
+    var probe = TM.Store.decode(text);             // 先校验，别把坏代码记进撤销历史
+    if (!probe.ok) { setShareStatus('载入失败：' + probe.error); return; }
+
+    pushHistory();                                 // 载入也能撤销回原来的谱子
+    var r = applyScore(text);
     if (!r.ok) { setShareStatus('载入失败：' + r.error); return; }
-    shareCode.value = encodeScore();               // 规整成当前面板的标准写法
+    fillShareCode();                               // 规整成当前面板的标准写法
     shareCode.select();
     setShareStatus(describeLoad(r));
   }
@@ -380,6 +424,37 @@
     if (r.snapped) s += '，其中 ' + r.snapped + ' 个本面板没有该音高，已按音高就近对齐';
     if (r.dropped) s += '，' + r.dropped + ' 个超出本面板范围被丢弃';
     return s;
+  }
+
+  // ── 撤销 / 反撤销 ───────────────────────────────────────
+  //
+  // 只在**一次操作的开始**拍快照，所以「按住拖过一整条」是一步撤销，不是几十步。
+  // 快照就是整张 grid 的副本：16×16 是 256 字节、64×48 是 3072 字节，
+  // 存满 60 步最多也就 180 KB —— 不值得为省这点内存去做增量记录。
+  var HISTORY_MAX = 60;
+  var history = [];
+  var redoStack = [];
+
+  function snapshot() { return grid.cells.slice(); }
+
+  function pushHistory() {
+    history.push(snapshot());
+    if (history.length > HISTORY_MAX) history.shift();
+    redoStack.length = 0;        // 走了新分支，原来的反撤销链就作废了
+  }
+
+  function undo() {
+    if (!history.length) return false;
+    redoStack.push(snapshot());
+    grid.replaceAll(history.pop());
+    return true;
+  }
+
+  function redo() {
+    if (!redoStack.length) return false;
+    history.push(snapshot());
+    grid.replaceAll(redoStack.pop());
+    return true;
   }
 
   // ── 播放位置标尺（鼠标控制游标）──────────────────────────

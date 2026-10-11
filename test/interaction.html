@@ -400,22 +400,35 @@ async function run(win, doc) {
   check('填入的代码与当前谱子一致',
         shareCode.value === win.TM.Store.encode(dbg.grid));
 
-  // 造一个确定的谱子 → 导出 → 清空 → 用代码载入回来
+  // ── 面板里的代码跟着谱子实时更新 ───────────────────────
   dbg.grid.clear();
   dbg.grid.set(1, 2, true);
   dbg.grid.set(5, 6, true);
   dbg.grid.set(15, 0, true);
-  var exported = win.TM.Store.encode(dbg.grid);
-  shareCode.value = exported;
+  var codeA = win.TM.Store.encode(dbg.grid);
 
-  dbg.grid.clear();
+  dbg.grid.clear();                       // 谱子变了，面板里的代码应该立刻跟着变
+  dbg.grid.set(9, 9, true);
+  check('面板展开时，代码跟着谱子实时更新',
+        shareCode.value === win.TM.Store.encode(dbg.grid) &&
+        shareCode.value !== codeA,
+        shareCode.value.slice(0, 16) + '…');
+
+  // 但用户正在粘代码时不能冲掉它
+  shareCode.value = codeA;
+  dbg.grid.set(11, 11, true);             // 面板里已经是「别人的代码」了
+  check('用户粘进面板的内容不会被改动冲掉',
+        shareCode.value === codeA, shareCode.value.slice(0, 16) + '…');
+
   btnLoad.click();
-  check('清空后用代码载入能还原',
+  check('把粘进来的代码载入能还原',
         dbg.grid.count() === 3 && dbg.grid.get(1, 2) &&
         dbg.grid.get(5, 6) && dbg.grid.get(15, 0),
         'count = ' + dbg.grid.count());
   check('载入成功后给出状态提示', /已载入/.test(shareStatus.textContent),
         shareStatus.textContent);
+  check('载入后面板里换成本面板的标准写法',
+        shareCode.value === win.TM.Store.encode(dbg.grid));
 
   // 坏输入：必须报错，且**不能**把当前谱子改坏
   var keep = dbg.grid.count();
@@ -440,7 +453,7 @@ async function run(win, doc) {
         win.TM.CONFIG.NOTES.indexOf(93) + ' 行');
 
   // 自动保存：改动后防抖 300ms 落进 localStorage
-  shareCode.value = exported;
+  shareCode.value = codeA;
   btnLoad.click();
   await wait(600);
   var stored = null;
@@ -463,6 +476,94 @@ async function run(win, doc) {
 
   shareBtn.click();
   check('再点「谱子」收起面板', shareRow.hidden === true);
+
+  // ── 撤销 / 反撤销 ──────────────────────────────────────
+  function pressKey(key, opts) {
+    opts = opts || {};
+    win.dispatchEvent(new win.KeyboardEvent('keydown', {
+      key: key, code: opts.code || '', bubbles: true, cancelable: true,
+      metaKey: !!opts.meta, shiftKey: !!opts.shift
+    }));
+  }
+  var mtx = doc.getElementById('matrix');
+  function ptAt(col, row) {
+    var r = mtx.getBoundingClientRect();
+    return { clientX: r.left + r.width * ((col + 0.5) / 16),
+             clientY: r.top + r.height * ((row + 0.5) / 16) };
+  }
+  function tapAt(col, row, id) {
+    var p = ptAt(col, row);
+    mtx.dispatchEvent(new win.PointerEvent('pointerdown', {
+      clientX: p.clientX, clientY: p.clientY,
+      bubbles: true, cancelable: true, pointerId: id, isPrimary: true
+    }));
+  }
+  function dragTo(col, row, id) {
+    var p = ptAt(col, row);
+    mtx.dispatchEvent(new win.PointerEvent('pointermove', {
+      clientX: p.clientX, clientY: p.clientY,
+      bubbles: true, cancelable: true, pointerId: id, isPrimary: true
+    }));
+  }
+  function dropPointer(id) {
+    mtx.dispatchEvent(new win.PointerEvent('pointerup', {
+      clientX: 0, clientY: 0, bubbles: true, pointerId: id, isPrimary: true
+    }));
+  }
+
+  // 先立一个非空的基准状态，好验证「撤销清空」确实把东西还回来了
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  tapAt(6, 6, 41);
+  await waitFor(function () { return dbg.grid.get(6, 6) === true; }, 800);
+  dropPointer(41);
+  var baseCount = dbg.grid.count();
+  check('撤销测试的基准状态非空', baseCount === 1, 'count = ' + baseCount);
+
+  doc.getElementById('btn-clear').click();
+  await waitFor(function () { return dbg.grid.count() === 0; }, 800);
+  tapAt(2, 2, 42);
+  await waitFor(function () { return dbg.grid.get(2, 2) === true; }, 800);
+  dropPointer(42);
+  tapAt(3, 3, 43);
+  await waitFor(function () { return dbg.grid.get(3, 3) === true; }, 800);
+  dropPointer(43);
+  check('准备：两格点亮', dbg.grid.count() === 2, 'count = ' + dbg.grid.count());
+
+  pressKey('z', { meta: true });
+  check('⌘Z 撤销上一步（只退掉后点的那格）',
+        dbg.grid.count() === 1 && dbg.grid.get(2, 2) && !dbg.grid.get(3, 3),
+        'count = ' + dbg.grid.count());
+
+  pressKey('z', { meta: true, shift: true });
+  check('⌘⇧Z 反撤销（两格都回来）', dbg.grid.count() === 2,
+        'count = ' + dbg.grid.count());
+
+  pressKey('z', { meta: true });          // 撤销 tap(3,3)
+  pressKey('z', { meta: true });          // 撤销 tap(2,2)
+  check('连续撤销能退到清空之后', dbg.grid.count() === 0, 'count = ' + dbg.grid.count());
+  pressKey('z', { meta: true });          // 再退一步 = 撤销「清空」本身
+  check('撤销也能还原「清空」', dbg.grid.count() === baseCount,
+        dbg.grid.count() + ' vs 清空前 ' + baseCount);
+
+  // 拖动涂一整条 = **一步**撤销（不是每格一步）
+  var beforeDrag = dbg.grid.count();
+  tapAt(0, 9, 51);
+  for (var dc = 1; dc <= 7; dc++) dragTo(dc, 9, 51);
+  dropPointer(51);
+  check('一次拖动涂了 8 格', dbg.grid.count() - beforeDrag === 8,
+        '涂了 ' + (dbg.grid.count() - beforeDrag) + ' 格');
+  pressKey('z', { meta: true });
+  check('一次拖动只占一步撤销（整条一起退）', dbg.grid.count() === beforeDrag,
+        dbg.grid.count() + ' vs ' + beforeDrag);
+
+  // 焦点在「谱子」输入框里时，⌘Z 要交给浏览器，别去撤销棋盘
+  var keepCount = dbg.grid.count();
+  shareCode.dispatchEvent(new win.KeyboardEvent('keydown', {
+    key: 'z', metaKey: true, bubbles: true, cancelable: true
+  }));
+  check('焦点在输入框里时 ⌘Z 不撤销棋盘',
+        dbg.grid.count() === keepCount, 'count = ' + dbg.grid.count());
 
   report();
 }
