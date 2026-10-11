@@ -156,6 +156,19 @@ async function run(win, doc) {
   check('空格：继续', dbg.sequencer.playing === true,
         'playing = ' + dbg.sequencer.playing);
 
+  // 继续播放必须**接着走**，不能回到第 0 步 —— start() 里曾经写死
+  // currentStep = 0，每按一次空格继续都从头重放。
+  // 这里把步号摆到 9 再走一次 stop → start：写死归零的话首排步号会是 0。
+  dbg.sequencer.stop();
+  dbg.sequencer.currentStep = 9;
+  dbg.sequencer.start();
+  check('空格继续：接着第 9 步走（没有回到第 0 步）',
+        dbg.sequencer.playing === true &&
+        dbg.sequencer.timeline.length > 0 &&
+        dbg.sequencer.timeline[0].step === 9,
+        '首排步号 ' + (dbg.sequencer.timeline.length
+          ? dbg.sequencer.timeline[0].step : '—'));
+
   // ── 点按 / 空格 / 清空 对网格的影响 ────────────────────
   var canvas = doc.getElementById('matrix');
   var rect = canvas.getBoundingClientRect();

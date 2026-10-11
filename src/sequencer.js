@@ -39,10 +39,22 @@
     this.timeline = [];       // [{step, time}]，time 单调递增
   }
 
+  /**
+   * 开始 / 继续播放。
+   *
+   * **这里不能把 `currentStep` 归零。** 空格键与「播放」按钮都是「暂停 / 继续」
+   * 语义，归零会让每次继续都从头重放（曾经就是这个 bug）。
+   *
+   * `currentStep` 天然就是「下一个待排的步」：
+   *   - 构造函数里是 0 → **首次播放自然从头开始**，不需要在这里重置；
+   *   - 播放中它指向下一步，`stop()` 只是停下计时器、不动它；
+   *   - 于是 `start()` 接着往下排就是「继续」。
+   * 以后若要「回到开头重新播」，把 `currentStep = 0` **单独**写成一个方法，
+   * 别塞回 `start()` 里。
+   */
   Sequencer.prototype.start = function () {
     if (this.playing || !this.audio.ready) return;
     this.playing = true;
-    this.currentStep = 0;
     this.timeline.length = 0;
     this.nextStepTime = this.audio.ctx.currentTime + START_DELAY;
 

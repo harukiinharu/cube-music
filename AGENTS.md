@@ -46,7 +46,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/selftest.html"
 ```
 
-结果在 `<pre id="results">` 里。**必须全部通过（当前 91 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
+结果在 `<pre id="results">` 里。**必须全部通过（当前 96 项），不允许出现 FAIL / JS ERROR / WATCHDOG。**
 
 页面级交互回归（文案 / 空格键 / 涟漪开关 / 点按涂抹）：
 
@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 57 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 58 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -97,8 +97,8 @@ src/sequencer.js      步进音序器。**整条链路的唯一时基**，见 §
 src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
-test/selftest.html    91 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码）
-test/interaction.html 57 项页面级交互断言（iframe + ?debug=1）
+test/selftest.html    96 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
+test/interaction.html 58 项页面级交互断言（iframe + ?debug=1）
 test/large.html       79 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
@@ -129,6 +129,17 @@ test/diag.html        频率/节点诊断
   **符号不要写反。**
 - 改速度**不需要**做任何重新对齐：已排的步保持不变，之后新排的步用新步长，
   反查自然连续。
+
+**暂停 / 继续不重置步号。** `currentStep` 的语义是「**下一个待排的步**」：
+
+- 构造函数里是 0 → 首次播放自然从头开始，**不需要**在 `start()` 里再置零；
+- 播放中它指向下一步，`stop()` 只停计时器、不动它；
+- 于是 `start()` 接着往下排就是「继续」。
+
+**不要在 `start()` 里写 `currentStep = 0`** —— 空格键与播放按钮都是「暂停 / 继续」
+语义，归零会让每次继续都从头重放（踩过这个 bug）。真要「回到开头重播」，
+单写一个方法，别塞回 `start()`。`test/selftest.html`（单元）和
+`test/interaction.html`（页面级）各有一条断言守着「继续是接着排，不是从 0 排」。
 
 **凡是与时间有关的量，都必须从速度派生，不能写死。** 历史上踩过的坑：
 反馈延迟时长曾被写死成 120 BPM 的 375 ms，导致非 120 BPM 时回声脱离步网格、
@@ -196,7 +207,7 @@ test/diag.html        频率/节点诊断
 
 | 操作 | 绑定 |
 |---|---|
-| 空格 | **暂停 / 继续**（`togglePlayback()`）。清空**没有**快捷键，只有按钮 |
+| 空格 | **暂停 / 继续**（`togglePlayback()`）。继续是**接着播**，不回到第 0 步（见 §4）。清空**没有**快捷键，只有按钮 |
 | 左键点击 / 拖动 | 开关方格 |
 | **右键方格** | **试听该格的音**（`audition()`）—— 发声 + 套一圈白色描边，**不改图案、不改填充色** |
 | `#btn-toggle` | 播放 / 暂停 |

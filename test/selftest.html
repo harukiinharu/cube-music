@@ -361,6 +361,38 @@
   seq2.playing = false;
   check('停止时 audibleStep 返回 null', seq2.audibleStep() === null);
 
+  // ── 5.55 暂停 / 继续：继续必须接着播，不能回到第 0 步 ────
+  // 曾经 start() 里写死了 currentStep = 0，于是每次按空格继续都从头重放。
+  // currentStep 的语义是「下一个待排的步」：构造函数里是 0（首次播放自然从头），
+  // stop() 只停计时器不动它，start() 接着往下排就是继续。
+  var fres = fakeAudio(0);
+  var sres = new TM.Sequencer(fres, new TM.Grid());
+  sres.playing = true;                      // 装作已经在播
+  sres._scheduleStep(5, 9.0);               // 已经排出去过第 5、6 步
+  sres._scheduleStep(6, 9.125);
+  sres.currentStep = 7;                     // 推进 currentStep 的是 _tick，这里直接摆好
+  check('currentStep 停在「下一个待排的步」上', sres.currentStep === 7, sres.currentStep + '');
+
+  sres.stop();
+  check('stop() 只停不重置 currentStep',
+        sres.playing === false && sres.currentStep === 7, sres.currentStep + '');
+
+  sres.start();
+  check('继续后接着排第 7 步（不是第 0 步）',
+        sres.playing === true && sres.timeline.length === 1 &&
+        sres.timeline[0].step === 7,
+        '首排步号 ' + (sres.timeline.length ? sres.timeline[0].step : '—'));
+  check('继续后 currentStep 前进到 8', sres.currentStep === 8, sres.currentStep + '');
+
+  // 首次播放仍应从第 0 步开始（别为了修「继续」把「首次」搞坏）
+  var fnew = fakeAudio(0);
+  var snew = new TM.Sequencer(fnew, new TM.Grid());
+  snew.start();
+  check('全新音序器首次播放从第 0 步开始',
+        snew.timeline.length === 1 && snew.timeline[0].step === 0,
+        '首排步号 ' + (snew.timeline.length ? snew.timeline[0].step : '—'));
+  snew.stop();
+
   // ── 5.6 延迟时长随速度变化 ─────────────────────────────
   var eng0 = new TM.AudioEngine();          // 纯数学，无需音频图
   check('延迟时长 @120BPM = 375 ms',
