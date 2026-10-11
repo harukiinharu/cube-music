@@ -252,6 +252,19 @@
       }
     });
 
+    // 点画布**外面**的留白（页面四周、控件之间的空隙）也要取消选择。
+    // 光靠 canvas 上的 pointerdown 不够：那些区域的事件根本不在 canvas 上，
+    // 就算到了 canvas，cellAt() 也会因为坐标越界返回 null 直接 return，
+    // 选区就杵在那儿不动了。踩过。
+    global.addEventListener('pointerdown', function (e) {
+      if (!renderer.selection) return;
+      var t = e.target;
+      if (t === canvas) return;                       // 画布内的由上面的 handler 管
+      if (t && t.closest &&
+          t.closest('.controls, .ruler')) return;     // 控件区（含「谱子」面板）不动选区
+      setSelection(null);
+    });
+
     // 选区快捷键：X 删除、A 填充、Esc 取消选择。
     // 不带修饰键、且焦点不在输入框里 —— 否则 Cmd+A（全选）之类会被误伤。
     global.addEventListener('keydown', function (e) {

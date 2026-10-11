@@ -686,6 +686,24 @@ async function run(win, doc) {
   key('Escape');
   check('Esc 取消选区', dbg.renderer.selection === null);
 
+  // 点画布**外面**的留白也要取消选择（那些区域到不了 canvas 的 pointerdown）
+  altDrag(2, 2, 4, 4, 72);
+  check('准备：有选区', !!dbg.renderer.selection);
+  doc.body.dispatchEvent(new win.PointerEvent('pointerdown', {
+    clientX: 5, clientY: 5, bubbles: true, cancelable: true,
+    pointerId: 73, isPrimary: true
+  }));
+  check('点画布外的页面留白会取消选择', dbg.renderer.selection === null,
+        JSON.stringify(dbg.renderer.selection));
+
+  // 但点控件不该取消（正在调速度 / 音量 / 按播放时选区应该留着）
+  altDrag(2, 2, 4, 4, 74);
+  doc.getElementById('btn-wave').dispatchEvent(new win.PointerEvent('pointerdown', {
+    bubbles: true, cancelable: true, pointerId: 75, isPrimary: true
+  }));
+  check('点控件不会取消选择', !!dbg.renderer.selection,
+        JSON.stringify(dbg.renderer.selection));
+
   // 点在选区外 → 取消选择 + 正常涂抹
   altDrag(2, 2, 4, 4, 67);
   check('重新拉出选区', !!dbg.renderer.selection);

@@ -655,6 +655,14 @@ try { localStorage.removeItem('cubemusic.score.large'); } catch (e) { /* 存储�
           bigSel.col1 === 55 && bigSel.row1 === 45,
           bigSel ? JSON.stringify(bigSel) : '无选区');
 
+    // 点棋盘框**之外**的留白要取消选择 —— 那些区域的事件到不了 canvas，
+    // 光靠 canvas 上的 pointerdown 处理不了（用户报过这个）
+    doc.body.dispatchEvent(new win.PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, pointerId: 81, isPrimary: true
+    }));
+    check('大面板：点画布外的留白会取消选择', dbg.renderer.selection === null,
+          JSON.stringify(dbg.renderer.selection));
+
     // 播放一帧，确认渲染链路在 2048 × 1536 上真的跑得动
     dbg.renderer.composite(63);
     var px = canvas.getContext('2d')

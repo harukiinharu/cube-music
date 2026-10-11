@@ -57,7 +57,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/interaction.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 107 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
+结果在 `<pre id="out">` 里（当前 110 项）。这个测试靠 iframe 加载 `index.html?debug=1`，
 断言建立在模型状态上，**不要改成采样渲染后的像素**（原因见 §10）。
 
 大面板回归（32 行 × 64 列，即 `large.html` 那条入口）：
@@ -69,7 +69,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --dump-dom "file://$PWD/test/large.html"
 ```
 
-结果在 `<pre id="out">` 里（当前 92 项）。它盯的是**矩形网格相对正方形多出来的
+结果在 `<pre id="out">` 里（当前 93 项）。它盯的是**矩形网格相对正方形多出来的
 失败模式**：一维数组拿错 stride、音序器 `% GRID` 提前归零、行扫描写死 16 行、
 命中测试写死 `CFG.GRID`、波场维度接反。每一条都做过变异验证（见 §10）。
 
@@ -98,8 +98,8 @@ src/renderer.js       Canvas 渲染：格子图层 + 波动场 + ADD 辉光
 src/storage.js        乐谱的编解码 + localStorage 存档。见 §13
 src/app.js            装配、输入、主循环（固定步长）。两套入口共用这一份
 test/selftest.html    117 项断言（离线音频渲染、波场稳定性、描边不变式、乐谱编解码、暂停续播）
-test/interaction.html 107 项页面级交互断言（iframe + ?debug=1）
-test/large.html       92 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
+test/interaction.html 110 项页面级交互断言（iframe + ?debug=1）
+test/large.html       93 项大面板断言（矩形网格的 stride / 取模 / 命中 / 波场维度）
 test/sharp.html       格子边缘锐度探针（读图层像素）
 test/perf.html        渲染开销探针（?cell=&wave=&wblur= 可切配置做 A/B）
 test/visual.html      渲染回归 + 亮度量化
@@ -226,6 +226,13 @@ test/diag.html        频率/节点诊断
 - **框选**：选区就是一块矩形（`renderer.selection`，已归一化）。Alt+拖画框；
   框内按住左键整体搬走；A 填满、X 清空、Esc 取消。
   点**选区外**会先取消选择再照常涂抹 —— 和图像编辑器的习惯一致。
+  - **取消选择有三条路，缺一不可**：① 点画布内、选区外（同时照常涂抹）；
+    ② 点**画布外**的页面留白；③ Esc。
+    ② 必须靠一条**文档级的 `pointerdown`**（`global.addEventListener`）——
+    画布外那些留白上的事件根本不在 canvas 上；就算勉强落到 canvas，
+    `cellAt()` 也会因为坐标越界返回 `null` 直接 `return`，选区就杵在那儿不动。
+    **踩过**：只写了 ①，用户点四周一大片留白时选区不消失。
+    控件区（`.controls` / `.ruler`）要豁免，否则调速度、按播放都会把选区弄丢。
   - **拖动状态（`dragMode` / `dragAnchor` / `move*`）声明在模块级，不在 `bindInput` 里。**
     `applyMove()` 这些 helper 定义在 `bindInput` **外面**；声明在里面的话 helper 访问到的
     是未声明变量，在 `'use strict'` 下直接抛 ReferenceError，而事件处理里的异常会被静默
