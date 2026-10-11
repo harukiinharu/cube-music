@@ -269,10 +269,14 @@ test/diag.html        频率/节点诊断
 - **远程**：`origin` = `github-haruki:harukiinharu/cube-music`（SSH 别名，认证身份 `harukiinharu`）。
   ⚠️ 本机 `gh` CLI 登录的是**另一个账号**，对该仓库只有读权限 —— 所以
   **推送走 git/SSH 没问题，但任何仓库设置（启用 Pages、改 Actions 权限）都得在网页端操作**。
+  仓库内已写入 `core.sshCommand = "ssh -o IdentityAgent=none"`，**不要删**：本机 ssh-agent
+  是坏的（`SSH_AUTH_SOCK` 指向一个无人应答的 launchd listener），不加这个选项 `git push`
+  会静默挂死（端口 22 可达、`BatchMode` 也救不了）。这是 per-repo 配置，克隆/重建仓库后
+  需要重新设置。
 - **自动化**：`.github/workflows/deploy.yml`。push 到 `main` 即触发：
   跑 `scripts/ci-test.sh` → 组装 `_site/` → 部署到 Pages。**回归不通过就不部署。**
 - 只有 `index.html` / `style.css` / `src/` / `test/` / `AGENTS.md` 会被发布；
-  `.github/` 与 `scripts/` 不进站点。README.md / front.png 只进仓库
+  `.github/` 与 `scripts/` 不进站点。README.md / front2.png 只进仓库
   （GitHub 渲染 README 时解析相对图片），不进 Pages 站点 —— 站点首页就是应用本身。
   **改发布范围时记得同步 `deploy.yml` 的 `cp -R` 行**：那里列了谁就复制谁，
   少列一个文件会让整个部署直接失败。
